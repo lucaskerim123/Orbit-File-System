@@ -96,67 +96,7 @@
         <button id="system-refresh-btn">↻ Refresh</button>
       </div>
 
-      <div class="card service-card">
-        <div class="service-row">
-          <div>
-            <strong>Hive server</strong>
-            <span id="svc-hive-pill" class="pill">-</span>
-          </div>
-          <button class="restart-btn" data-target="hive">Restart</button>
-        </div>
-        <details><summary>Logs</summary>
-          <p class="muted-text">stdout includes shared MCP, REST, OAuth, ChatGPT/Codex, and Claude flow events.</p>
-          <div class="log-tabs">
-            <button class="log-tab-btn active" data-log="hive-events">activity</button>
-            <button class="log-tab-btn" data-log="hive-errors">errors</button>
-            <button class="log-tab-btn" data-log="hive-out">stdout</button>
-            <button class="log-tab-btn" data-log="hive-err">stderr</button>
-          </div>
-          <pre id="log-hive" class="log-view"></pre>
-        </details>
-      </div>
-
-      <div class="card service-card">
-        <div class="service-row">
-          <div>
-            <strong>Cloudflare Tunnel</strong>
-            <span id="svc-tunnel-pill" class="pill">-</span>
-          </div>
-          <button class="restart-btn" data-target="tunnel">Restart</button>
-        </div>
-        <details><summary>Logs</summary>
-          <div class="log-tabs">
-            <button class="log-tab-btn active" data-log="tunnel-out">stdout</button>
-            <button class="log-tab-btn" data-log="tunnel-err">stderr</button>
-          </div>
-          <pre id="log-tunnel" class="log-view"></pre>
-        </details>
-      </div>
-
-      <div class="card service-card">
-        <div class="service-row">
-          <div>
-            <strong>This panel</strong>
-            <span id="svc-panel-pill" class="pill">-</span>
-          </div>
-          <button class="restart-btn" data-target="panel">Restart</button>
-        </div>
-        <details><summary>Logs</summary>
-          <div class="log-tabs">
-            <button class="log-tab-btn active" data-log="panel-out">stdout</button>
-            <button class="log-tab-btn" data-log="panel-err">stderr</button>
-          </div>
-          <pre id="log-panel" class="log-view"></pre>
-        </details>
-      </div>
-
-      <div class="card">
-        <strong>Disk (C:)</strong>
-        <div id="disk-bar" class="disk-bar"><div id="disk-bar-fill" class="disk-bar-fill"></div></div>
-        <p id="disk-text" class="muted-text"></p>
-      </div>
-
-      <div class="card">
+      <div class="card primary-system-card">
         <div class="service-row">
           <div>
             <strong>ChatGPT ↔ Claude connection monitor</strong>
@@ -170,6 +110,25 @@
           <span class="connection-arrow">↔</span>
           <span>Claude</span>
         </div>
+        <div class="infra-grid">
+          <div class="infra-item">
+            <span>Hive server</span>
+            <span id="svc-hive-pill" class="pill">-</span>
+          </div>
+          <div class="infra-item">
+            <span>Cloudflare Tunnel</span>
+            <span id="svc-tunnel-pill" class="pill">-</span>
+          </div>
+          <div class="infra-item">
+            <span>This panel</span>
+            <span id="svc-panel-pill" class="pill">-</span>
+          </div>
+          <div class="infra-item">
+            <span>Disk (C:)</span>
+            <span id="disk-summary" class="muted-text">-</span>
+          </div>
+        </div>
+        <div id="disk-bar" class="disk-bar"><div id="disk-bar-fill" class="disk-bar-fill"></div></div>
         <div class="flow-grid">
           <div class="flow-card">
             <div class="flow-heading">
@@ -219,7 +178,51 @@
         </div>
         <p class="muted-text">Status uses shared Hive health, OAuth registrations, refresh-token accounts, and recent structured Hive logs.</p>
         <pre id="flow-recent-log" class="log-view compact-log">(waiting)</pre>
+        <details><summary>Hive activity logs</summary>
+          <p class="muted-text">Activity includes shared MCP, REST, OAuth, ChatGPT/Codex, Claude, web panel, and file-change events.</p>
+          <div class="log-tabs">
+            <button class="log-tab-btn active" data-log="hive-events">activity</button>
+            <button class="log-tab-btn" data-log="hive-errors">errors</button>
+            <button class="log-tab-btn" data-log="hive-out">stdout</button>
+            <button class="log-tab-btn" data-log="hive-err">stderr</button>
+          </div>
+          <pre id="log-hive" class="log-view"></pre>
+        </details>
       </div>
+
+      <details class="card">
+        <summary>Server controls</summary>
+        <div class="service-row">
+          <div><strong>Hive server</strong></div>
+          <button class="restart-btn" data-target="hive">Restart</button>
+        </div>
+        <div class="service-row">
+          <div><strong>Cloudflare Tunnel</strong></div>
+          <button class="restart-btn" data-target="tunnel">Restart</button>
+        </div>
+        <div class="service-row">
+          <div><strong>This panel</strong></div>
+          <button class="restart-btn" data-target="panel">Restart</button>
+        </div>
+      </details>
+
+      <details class="card">
+        <summary>Panel logs</summary>
+        <div class="log-tabs">
+          <button class="log-tab-btn active" data-log="panel-out">stdout</button>
+          <button class="log-tab-btn" data-log="panel-err">stderr</button>
+        </div>
+        <pre id="log-panel" class="log-view"></pre>
+      </details>
+
+      <details class="card">
+        <summary>Tunnel logs</summary>
+        <div class="log-tabs">
+          <button class="log-tab-btn active" data-log="tunnel-out">stdout</button>
+          <button class="log-tab-btn" data-log="tunnel-err">stderr</button>
+        </div>
+        <pre id="log-tunnel" class="log-view"></pre>
+      </details>
 
       <details class="card" open>
         <summary>Users</summary>

@@ -330,6 +330,41 @@ select, input[type="text"], input[type="number"] {
 }
 .disk-bar-fill { height: 100%; background: var(--accent); width: 0%; }
 
+.primary-system-card {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.connection-map {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+  font-weight: 600;
+}
+
+.connection-arrow { color: var(--accent); }
+
+.infra-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.55rem;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.infra-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  background: var(--bg);
+  font-size: 0.82rem;
+}
+
 .flow-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

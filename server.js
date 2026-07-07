@@ -10,10 +10,39 @@ import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser,
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PANEL_PORT || 4000;
+const LOG_DIR = path.join(__dirname, "logs");
+const PANEL_EVENT_LOG = path.join(LOG_DIR, "master-brain-panel-events.jsonl");
+const PANEL_ERROR_LOG = path.join(LOG_DIR, "master-brain-panel-errors.jsonl");
 
 const hive = makeHiveClient(process.env.HIVE_URL, process.env.HIVE_API_KEY);
 
 const app = express();
+
+function logEvent(event, fields = {}) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), event, ...fields });
+  console.log(line);
+  fs.mkdir(LOG_DIR, { recursive: true })
+    .then(() => fs.appendFile(PANEL_EVENT_LOG, `${line}\n`))
+    .catch(() => {});
+}
+
+function logError(event, err, fields = {}) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), event, error: err.message, ...fields });
+  console.error(line);
+  fs.mkdir(LOG_DIR, { recursive: true })
+    .then(() => fs.appendFile(PANEL_ERROR_LOG, `${line}\n`))
+    .catch(() => {});
+}
+
+function requestContext(req) {
+  return {
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    user: req.username,
+    role: req.role,
+  };
+}
 
 function sessionOf(req) {
   const auth = req.headers["authorization"];
@@ -33,9 +62,14 @@ app.post("/api/login", express.json(), async (req, res) => {
   if (!username || !pin) return res.status(400).json({ error: "username and pin required" });
   try {
     const result = await verifyLogin(username, pin);
-    if (!result) return res.status(401).json({ error: "Invalid username or PIN" });
+    if (!result) {
+      logEvent("panel.login.failed", { username });
+      return res.status(401).json({ error: "Invalid username or PIN" });
+    }
+    logEvent("panel.login.ok", { username: result.username, role: result.role });
     res.json(result); // { token, username, role }
   } catch (err) {
+    logError("panel.login.error", err, { username });
     res.status(429).json({ error: err.message });
   }
 });
@@ -52,6 +86,18 @@ app.use("/api", (req, res, next) => {
   if (!session) return res.status(401).json({ error: "Unauthorized" });
   req.username = session.username;
   req.role = session.role;
+  next();
+});
+
+app.use("/api", (req, res, next) => {
+  const started = Date.now();
+  res.on("finish", () => {
+    logEvent("panel.http.request", {
+      ...requestContext(req),
+      status: res.statusCode,
+      ms: Date.now() - started,
+    });
+  });
   next();
 });
 
@@ -204,6 +250,8 @@ app.post("/api/system/restart", express.json(), async (req, res) => {
 });
 
 const LOG_FILES = {
+  "panel-events": PANEL_EVENT_LOG,
+  "panel-errors": PANEL_ERROR_LOG,
   "panel-out": path.join(__dirname, "service-out.log"),
   "panel-err": path.join(__dirname, "service-err.log"),
   "hive-out": "C:\\mcp-hive-server\\out.log",
@@ -273,5 +321,5 @@ app.use(
 );
 
 app.listen(PORT, () => {
-  console.log(`The Master Brain panel listening on :${PORT}`);
+  logEvent("panel.server.start", { port: PORT });
 });

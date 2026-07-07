@@ -679,8 +679,12 @@ async function loadSystem() {
 
     const usedPct = Math.round((s.disk.usedGB / s.disk.totalGB) * 100);
     document.getElementById("disk-bar-fill").style.width = `${usedPct}%`;
-    document.getElementById("disk-text").textContent =
+    const diskText =
       `${s.disk.usedGB} GB used / ${s.disk.freeGB} GB free (${s.disk.totalGB} GB total)`;
+    const diskTextEl = document.getElementById("disk-text");
+    if (diskTextEl) diskTextEl.textContent = diskText;
+    const diskSummaryEl = document.getElementById("disk-summary");
+    if (diskSummaryEl) diskSummaryEl.textContent = `${s.disk.freeGB} GB free`;
   } catch (err) {
     console.error(err);
   }
