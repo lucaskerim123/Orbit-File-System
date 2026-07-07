@@ -1,5 +1,6 @@
 const state = {
   token: localStorage.getItem("panelToken") || "",
+  username: localStorage.getItem("panelUsername") || "",
   node: "pc",
   subpath: "",
   openFile: null,
@@ -21,15 +22,22 @@ function api(path, opts = {}) {
 }
 
 function logout() {
+  const token = state.token;
   localStorage.removeItem("panelToken");
+  localStorage.removeItem("panelUsername");
   state.token = "";
+  state.username = "";
   document.getElementById("app").classList.add("hidden");
   document.getElementById("login").classList.remove("hidden");
+  if (token) {
+    fetch("/api/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  }
 }
 
 function showApp() {
   document.getElementById("login").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
+  document.getElementById("current-user").textContent = state.username;
   refreshStatus();
   loadFiles();
   loadConfig();
@@ -38,17 +46,25 @@ function showApp() {
 
 document.getElementById("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const key = document.getElementById("login-key").value.trim();
+  const username = document.getElementById("login-username").value.trim();
+  const pin = document.getElementById("login-pin").value.trim();
   const errorEl = document.getElementById("login-error");
   errorEl.textContent = "";
-  state.token = key;
   try {
-    await api("/api/status");
-    localStorage.setItem("panelToken", key);
+    const resp = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, pin }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(body.error || "Login failed");
+    state.token = body.token;
+    state.username = body.username;
+    localStorage.setItem("panelToken", state.token);
+    localStorage.setItem("panelUsername", state.username);
     showApp();
   } catch (err) {
-    errorEl.textContent = "Invalid key or panel unreachable";
-    state.token = "";
+    errorEl.textContent = err.message;
   }
 });
 

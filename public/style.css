@@ -100,6 +100,7 @@ header h1 { font-size: 1.1rem; margin: 0; }
 
 .pill.ok { color: var(--ok); border-color: var(--ok); }
 .pill.down { color: var(--danger); border-color: var(--danger); }
+.muted-text { color: var(--muted); font-size: 0.8rem; }
 
 .tabs {
   display: flex;

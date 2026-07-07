@@ -4,3 +4,4 @@ node_modules/
 config.json
 sync-state.json
 sync-history.jsonl
+users.json

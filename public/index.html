@@ -10,7 +10,8 @@
   <div id="login" class="login-screen">
     <form id="login-form">
       <h1>The Master Brain</h1>
-      <input id="login-key" type="password" placeholder="Panel API key" autocomplete="off" />
+      <input id="login-username" type="text" placeholder="Username" autocomplete="username" />
+      <input id="login-pin" type="password" inputmode="numeric" placeholder="PIN" autocomplete="current-password" />
       <button type="submit">Enter</button>
       <p id="login-error" class="error"></p>
     </form>
@@ -22,6 +23,7 @@
       <div class="status-pills">
         <span id="status-pc" class="pill">PC</span>
         <span id="status-vps" class="pill">VPS</span>
+        <span id="current-user" class="muted-text"></span>
         <button id="logout" class="link-btn">Log out</button>
       </div>
     </header>
