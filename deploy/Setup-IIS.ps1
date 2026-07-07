@@ -136,6 +136,15 @@ if (-not (Test-Path $nssmExe)) {
   Write-Ok "NSSM already present at $nssmExe"
 }
 
+if (-not (Test-Path $nssmExe)) {
+  throw "nssm.exe isn't at '$nssmExe' even though setup just reported it as available. " +
+    "This is usually Windows Defender (or another AV) quarantining nssm.exe right after " +
+    "download -- it's a common false positive because NSSM installs Windows services, a " +
+    "technique malware also uses for persistence. Check Windows Security -> Virus & threat " +
+    "protection -> Protection history, restore nssm.exe if it was quarantined, add an " +
+    "exclusion for '$NssmDir', then re-run this script."
+}
+
 # --- 2. Register/update the panel as a Windows service ----------------------
 Write-Step "Registering '$ServiceName' Windows service"
 
