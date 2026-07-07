@@ -1,71 +1,81 @@
 # The Master Brain
 
-Web panel for browsing and syncing the two Master Hive nodes:
+Mobile-first admin panel for the Master Hive file server. Two things, so
+there's no reason to RDP into the VPS for routine work:
 
-- **PC node** — the `mcp-hive-server` instance running on your Windows PC, reached over its Cloudflare tunnel.
-- **VPS node** — a second `mcp-hive-server` instance running on this VPS, always online.
+- **Files** — browse, open/edit text files in-place, upload, download, move
+  or rename, create folders, and delete — anywhere in the Hive.
+- **System** — see whether the Hive server, the Cloudflare tunnel, and this
+  panel itself are up, restart any of them, tail their logs, check disk
+  space, and see which MCP clients (Claude, ChatGPT) are currently
+  registered against the Hive.
 
-The panel lets you browse/edit files on either node, and keeps the two in syncnpm install
-(two-way, last-write-wins by modified time, with deletion propagation), with a
-manual "Sync now" button, a configurable auto-sync interval, and a sync
-history log. The UI is mobile-first, so it's fully usable from a phone.
+It talks to one `mcp-hive-server` instance over its REST API (`/api/*`,
+alongside the MCP endpoint that Claude/ChatGPT use) — normally the same VPS
+this panel runs on, reached over `localhost`.
 
 ## Setup on the VPS
 
-1. Deploy a second `mcp-hive-server` instance on this same VPS (its own
-   `HIVE_ROOT`, its own port, e.g. `3939`, `HIVE_API_KEY`, etc. — see that
-   repo's own setup). It does not need a Cloudflare tunnel if the panel talks
-   to it over `localhost`.
+1. Have `mcp-hive-server` already running on this VPS (its own `HIVE_ROOT`,
+   port, `HIVE_API_KEY`, etc. — see that repo's own setup).
 2. Clone this repo and install dependencies:
    ```
    git clone <this repo>
    cd the-master-brain
    npm install
    cp .env.example .env
-   cp config.example.json config.json
    ```
 3. Edit `.env`:
-   - `NODE_PC_URL` / `NODE_PC_API_KEY` — your PC's public tunnel URL and its
-     `HIVE_API_KEY`.
-   - `NODE_VPS_URL` / `NODE_VPS_API_KEY` — usually `http://localhost:3939`
-     and the VPS Hive instance's `HIVE_API_KEY`.
-4. Adjust `config.json` if you want a different sync direction, interval, or
-   include/exclude patterns (also editable later from the panel's Sync tab).
-5. Create at least one login account (username + PIN):
+   - `HIVE_URL` — usually `http://localhost:3939`.
+   - `HIVE_API_KEY` — same value as `HIVE_API_KEY` in the Hive server's own
+     `.env`.
+4. Create at least one login account (username + PIN):
    ```
    node scripts/add-user.mjs lucas 482917
    ```
    Add one line per person who needs access; re-running with an existing
    username replaces their PIN.
-6. Start it: `npm start` (listens on `PANEL_PORT`, default `4000`).
+5. Start it: `npm start` (listens on `PANEL_PORT`, default `4000`).
 
-## Login
+## Login and roles
 
 Each user logs in with a username + PIN (not a shared key). PINs are hashed
 (scrypt) in `users.json` — never stored in plain text — and a login issues a
 12-hour session token. Five wrong PIN attempts for a username lock it out for
-15 minutes. Manage accounts with `node scripts/add-user.mjs <username> <pin>`;
-there's no in-app user management UI by design, since this is meant for a
-small, trusted set of people with shell access to the server.
+15 minutes.
 
-## Quick deploy on IIS (Windows VPS, no PC required)
+Every account has a role, `admin` or `user`. Admins see a "System" tab
+covering service status/restarts, logs, connected MCP clients, and user
+management. Regular users only see the Files tab. There's always at least one
+admin — the panel refuses to delete or demote the last one.
 
-If you're managing the VPS entirely over RDP (no separate PC), after steps
-1-5 above, `deploy/Setup-IIS.ps1` automates the rest — installing the panel
-as a background Windows service and putting it behind IIS as a reverse
-proxy:
+Bootstrap the first account from the shell:
+```
+node scripts/add-user.mjs lucas 482917
+```
+(the very first account created this way defaults to `admin`; pass a role
+explicitly to override, e.g. `node scripts/add-user.mjs guest 111222 user`).
+After that, admins can add, update, or remove accounts from the System tab's
+Users card — no shell access needed.
+
+## Quick deploy on IIS (Windows VPS)
+
+After steps 1-4 above, `deploy/Setup-IIS.ps1` automates the rest — installing
+the panel as a background Windows service and putting it behind IIS as a
+reverse proxy:
 
 ```powershell
 # In an elevated PowerShell (Run as Administrator) on the VPS, after
-# cloning the repo to C:\the-master-brain and completing steps 1-5 above:
-cd C:\the-master-brain
-.\deploy\Setup-IIS.ps1 -HostHeader brain.your-domain.com
+# cloning the repo and completing steps 1-4 above:
+cd C:\path\to\the-master-brain
+.\deploy\Setup-IIS.ps1 -AppDir C:\path\to\the-master-brain
 ```
 
 What it does:
 - Installs [NSSM](https://nssm.cc/) if missing and registers the panel as a
   `MasterBrainPanel` Windows service (auto-starts on boot, restarts on
-  failure, logs to `service-out.log` / `service-err.log` in the repo).
+  failure, logs to `service-out.log` / `service-err.log` in the repo — also
+  viewable from the panel's System tab).
 - Downloads + silently installs the IIS **URL Rewrite** and **Application
   Request Routing (ARR)** modules if they aren't already present.
 - Enables ARR's reverse-proxy feature and creates an IIS site that forwards
@@ -73,16 +83,18 @@ What it does:
 
 It's safe to re-run (e.g. after `git pull && npm install`) — it only
 restarts the service and refreshes the IIS config, it won't duplicate
-anything. Run `Get-Help .\deploy\Setup-IIS.ps1 -Full` for all parameters
-(ports, service name, site name, etc.).
+anything. Run `Get-Help .\deploy\Setup-IIS.ps1 -Full` for all parameters.
 
-After it finishes, manually:
-1. Point DNS for your domain at the VPS, if using `-HostHeader`.
-2. Bind HTTPS in IIS Manager (Sites → your site → Bindings → Add `https`)
-   with a real certificate — [win-acme](https://www.win-acme.com/) is the
-   easiest way to get a free auto-renewing Let's Encrypt cert on IIS. This
-   matters: login PINs and session tokens travel over this connection.
-3. Open `https://<your-domain>/` from your phone and log in.
+If you're already reaching the Hive server through a Cloudflare Tunnel
+"published application", the simplest way to expose this panel publicly is
+the same way: add another published application on the same tunnel pointing
+at `localhost:4000` (or `:8080` for the IIS reverse-proxy site). Cloudflare
+terminates HTTPS at the edge, so no separate certificate is needed. Otherwise,
+bind HTTPS directly in IIS Manager (Sites → your site → Bindings → Add
+`https`) with a certificate — [win-acme](https://www.win-acme.com/) is the
+easiest way to get a free auto-renewing Let's Encrypt cert on IIS. This
+matters either way: login PINs and session tokens travel over this
+connection.
 
 The sections below cover the same setup by hand, and other hosting options
 (systemd on Linux, or a manual nginx/IIS reverse proxy), if you'd rather not
@@ -111,6 +123,10 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable --now master-brain
 ```
+
+Note: the System tab's restart/status/log-tailing features are Windows-only
+(they shell out to PowerShell) - on Linux, use `systemctl`/journalctl
+directly for those; file management still works everywhere.
 
 ## Reverse proxy (nginx)
 
@@ -169,8 +185,12 @@ to reason about, so it's the one recommended here.
 
 ## Notes
 
-- `config.json`, `sync-state.json`, and `sync-history.jsonl` are runtime state
-  (gitignored) — `sync-state.json` is what makes deletion propagation work,
-  don't delete it unless you want the next sync to treat everything as new.
-- ChatGPT's existing MCP connection to the Hive server(s) is untouched by this
-  panel — point it at whichever node(s) you want it to use.
+- Files are considered text-editable in the panel based on extension (`.md`,
+  `.txt`, `.json`, `.js`, `.py`, `.yml`, `.html`, `.css`, `.csv`, `.log`,
+  etc.) — anything else opens a preview with a Download button instead of
+  trying to load raw bytes into a text editor.
+- The System tab's "Restart panel" button really does restart the Windows
+  service serving your request — the response comes back first, then the
+  restart happens about a second later. Expect a brief disconnect.
+- Claude's/ChatGPT's MCP connection to the Hive server is completely
+  separate from this panel and unaffected by anything here.

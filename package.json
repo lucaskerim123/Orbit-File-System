@@ -1,7 +1,7 @@
 {
   "name": "the-master-brain",
-  "version": "1.0.0",
-  "description": "Web panel for browsing and syncing the Master Hive nodes (PC + VPS)",
+  "version": "2.0.0",
+  "description": "Mobile-first admin panel for the Master Hive file server - full file control plus service monitoring/restart, so there's no reason to RDP into the VPS.",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -10,8 +10,6 @@
   "license": "ISC",
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "minimatch": "^10.2.5",
-    "node-cron": "^4.6.0"
+    "express": "^5.2.1"
   }
 }

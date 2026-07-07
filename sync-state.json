@@ -1,0 +1,92 @@
+{
+  "0. Core Folder/Master Logs/Master_Incident_Log_v1.md": {
+    "path": "0. Core Folder/Master Logs/Master_Incident_Log_v1.md",
+    "size": 31,
+    "mtime": "2026-07-07T11:00:19.220Z",
+    "sha256": "1eca945a37d238d32d97d0de9c7effeb713dfa77180e71a40ae04f5ca75a4a7e"
+  },
+  "0. Core Folder/Master Logs/Master_Incident_Log_v2.md": {
+    "path": "0. Core Folder/Master Logs/Master_Incident_Log_v2.md",
+    "size": 31,
+    "mtime": "2026-07-07T11:00:19.220Z",
+    "sha256": "8829082142184f5d5e754bec2a5e11f65ac84e1b86c96a08a590f723b86e9f61"
+  },
+  "0. Core Folder/Master Logs/Master_Incident_Log_v3.md": {
+    "path": "0. Core Folder/Master Logs/Master_Incident_Log_v3.md",
+    "size": 31,
+    "mtime": "2026-07-07T11:00:19.245Z",
+    "sha256": "6f1e6c6df7aeea95df9fed6a28a0e4922141ed2edb4562a8342757598c5dcd05"
+  },
+  "0. Core Folder/Master Logs/Master_Relationship_Timeline.md": {
+    "path": "0. Core Folder/Master Logs/Master_Relationship_Timeline.md",
+    "size": 37,
+    "mtime": "2026-07-07T11:00:19.245Z",
+    "sha256": "0bc9275460881dba5558580d84ec7a2290b83a5c1221c78b51dab170e3fd8309"
+  },
+  "_system/chatgpt_mcp_instructions.md": {
+    "path": "_system/chatgpt_mcp_instructions.md",
+    "size": 1192,
+    "mtime": "2026-07-07T11:44:47.364Z",
+    "sha256": "a3efaed36083bd9d67efbfe4b791f8072e29b4cd469fe82e63b7c43a784069ef"
+  },
+  "_system/Index/file_index.json": {
+    "path": "_system/Index/file_index.json",
+    "size": 5706,
+    "mtime": "2026-07-07T11:00:19.647Z",
+    "sha256": "aa52f01eb87c6963ee04fdce005b6af5f9253d988a59f4be3e421029c2fd598c"
+  },
+  "_system/rebuild_index.py": {
+    "path": "_system/rebuild_index.py",
+    "size": 1785,
+    "mtime": "2026-07-07T11:00:19.275Z",
+    "sha256": "0025c0dfb6a8c87c94ee802a9d4c046b2b7479a535e2e94cbf44b52cb34ef0ca"
+  },
+  "_system/Rules/commands.md": {
+    "path": "_system/Rules/commands.md",
+    "size": 1309,
+    "mtime": "2026-07-07T12:06:06.890Z",
+    "sha256": "617b97676f6c24605d8fd633494f12a925578224a3b35321354023d9593d8804"
+  },
+  "_system/Rules/load_order.md": {
+    "path": "_system/Rules/load_order.md",
+    "size": 1068,
+    "mtime": "2026-07-07T12:06:06.968Z",
+    "sha256": "298d89a58abb6235060f82314c3d6dd952a40b46f97803f64514cabbe7d25a32"
+  },
+  "_system/Rules/project_rules.md": {
+    "path": "_system/Rules/project_rules.md",
+    "size": 1405,
+    "mtime": "2026-07-07T12:06:06.999Z",
+    "sha256": "c4655febc3a11326d99f53cefeae21ee527cc0a6a0724797690c570115b7954f"
+  },
+  "_system/Rules/saving_rules.md": {
+    "path": "_system/Rules/saving_rules.md",
+    "size": 2199,
+    "mtime": "2026-07-07T12:06:06.937Z",
+    "sha256": "b457ea22c07b78665278d2454993675a6eae7dc61ad2a0aa57b2cda736c7ae5e"
+  },
+  "_system/Startup/00_MASTER_STARTUP.md": {
+    "path": "_system/Startup/00_MASTER_STARTUP.md",
+    "size": 1076,
+    "mtime": "2026-07-07T12:06:07.031Z",
+    "sha256": "8deeb5e232eb84ed8f52e99984c4c43bcba6b9ff90f80eabe9f53ad67411cddd"
+  },
+  "_system/Startup/01_COURT_SYSTEM_STARTUP.md": {
+    "path": "_system/Startup/01_COURT_SYSTEM_STARTUP.md",
+    "size": 5276,
+    "mtime": "2026-07-07T11:57:23.432Z",
+    "sha256": "985fbe5fbdb64859a21ecda603ea271ca35f92b8d981cfd22792782ed9c5cd1b"
+  },
+  "_system/Startup/02_MENTAL_HEALTH_SYSTEM_STARTUP.md": {
+    "path": "_system/Startup/02_MENTAL_HEALTH_SYSTEM_STARTUP.md",
+    "size": 4479,
+    "mtime": "2026-07-07T11:57:29.168Z",
+    "sha256": "f2b991b3fdf74c6805c0213c61a13578bb7f44bf44e0bbf7f82b1970a8e31d9b"
+  },
+  "_system/Startup/03_MEDIA_STARTUP.md": {
+    "path": "_system/Startup/03_MEDIA_STARTUP.md",
+    "size": 528,
+    "mtime": "2026-07-07T11:44:47.573Z",
+    "sha256": "05877d0e0b308404dfe98deba788b8bf1917d7f8eb0e12fb565d1be9839c4359"
+  }
+}

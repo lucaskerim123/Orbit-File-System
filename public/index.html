@@ -7,6 +7,7 @@
 <title>The Master Brain</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235b8cff'/%3E%3Ctext x='32' y='43' font-size='30' font-family='sans-serif' text-anchor='middle' fill='white'%3E%F0%9F%A7%A0%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
 </head>
 <body>
   <div id="login" class="login-screen">
@@ -15,9 +16,12 @@
         <span class="brand-mark">🧠</span>
         <h1>The Master Brain</h1>
       </div>
-      <p class="brand-subtitle">PC ⇄ VPS file sync &amp; control panel</p>
-      <input id="login-username" type="text" placeholder="Username" autocomplete="username" />
-      <input id="login-pin" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="PIN" autocomplete="current-password" />
+      <p class="brand-subtitle">Master Hive file manager &amp; server control</p>
+      <input id="login-username" type="text" placeholder="Username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <div class="pin-field">
+        <input id="login-pin" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="PIN" autocomplete="current-password" />
+        <button type="button" id="pin-toggle" class="link-btn pin-toggle" aria-label="Show PIN">👁</button>
+      </div>
       <button type="submit" class="primary">Enter</button>
       <p id="login-error" class="error"></p>
     </form>
@@ -30,8 +34,7 @@
         <h1>Master Brain</h1>
       </div>
       <div class="status-pills">
-        <span id="status-pc" class="pill">PC</span>
-        <span id="status-vps" class="pill">VPS</span>
+        <span id="status-hive" class="pill">Hive</span>
         <button id="logout" class="link-btn" aria-label="Log out">⏻</button>
       </div>
     </header>
@@ -39,80 +42,153 @@
 
     <nav class="tabs">
       <button class="tab-btn active" data-tab="files">📁 Files</button>
-      <button class="tab-btn" data-tab="sync">🔄 Sync</button>
+      <button class="tab-btn hidden" id="tab-btn-system" data-tab="system">🖥️ System</button>
     </nav>
 
     <section id="tab-files" class="tab-panel active">
       <div class="toolbar">
-        <select id="node-select">
-          <option value="pc">💻 PC</option>
-          <option value="vps">☁️ VPS</option>
-        </select>
         <span id="breadcrumb" class="breadcrumb"></span>
       </div>
-      <div class="toolbar new-item-bar">
-        <input id="new-name" placeholder="new-file.txt or folder/" />
-        <button id="new-file-btn">+ File</button>
+      <div class="toolbar action-bar">
         <button id="new-folder-btn">+ Folder</button>
+        <button id="upload-btn">⬆ Upload</button>
+        <input id="upload-input" type="file" multiple class="hidden" />
       </div>
       <div id="files-layout" class="files-layout">
         <ul id="file-list" class="file-list"></ul>
+
         <div id="editor" class="editor hidden">
           <div class="editor-toolbar">
             <button id="back-to-list-btn" class="link-btn back-btn" aria-label="Back to file list">← Back</button>
             <span id="editor-path"></span>
             <span class="spacer"></span>
+            <button id="editor-mode-btn" class="hidden">Edit</button>
             <button id="save-file-btn" class="primary">Save</button>
+            <button id="editor-download-btn">⬇ Download</button>
+            <button id="move-file-btn">Move</button>
             <button id="delete-file-btn" class="danger">Delete</button>
           </div>
+          <div id="editor-rendered" class="rendered-view hidden"></div>
           <textarea id="editor-content" spellcheck="false"></textarea>
+        </div>
+
+        <div id="preview" class="editor hidden">
+          <div class="editor-toolbar">
+            <button id="preview-back-btn" class="link-btn back-btn" aria-label="Back to file list">← Back</button>
+            <span id="preview-path"></span>
+          </div>
+          <div class="preview-body">
+            <div id="preview-media" class="preview-media hidden"></div>
+            <p id="preview-info" class="muted-text"></p>
+            <div class="preview-actions">
+              <button id="preview-download-btn" class="primary">⬇ Download</button>
+              <button id="preview-move-btn">Move</button>
+              <button id="preview-delete-btn" class="danger">Delete</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
-    <section id="tab-sync" class="tab-panel">
-      <div class="card sync-summary">
-        <button id="sync-now-btn" class="primary">Sync now</button>
-        <span id="sync-status-text"></span>
+    <section id="tab-system" class="tab-panel">
+      <div class="toolbar">
+        <button id="system-refresh-btn">↻ Refresh</button>
+      </div>
+
+      <div class="card service-card">
+        <div class="service-row">
+          <div>
+            <strong>Hive server</strong>
+            <span id="svc-hive-pill" class="pill">-</span>
+          </div>
+          <button class="restart-btn" data-target="hive">Restart</button>
+        </div>
+        <details><summary>Logs</summary>
+          <div class="log-tabs">
+            <button class="log-tab-btn active" data-log="hive-out">stdout</button>
+            <button class="log-tab-btn" data-log="hive-err">stderr</button>
+          </div>
+          <pre id="log-hive" class="log-view"></pre>
+        </details>
+      </div>
+
+      <div class="card service-card">
+        <div class="service-row">
+          <div>
+            <strong>Cloudflare Tunnel</strong>
+            <span id="svc-tunnel-pill" class="pill">-</span>
+          </div>
+          <button class="restart-btn" data-target="tunnel">Restart</button>
+        </div>
+        <details><summary>Logs</summary>
+          <div class="log-tabs">
+            <button class="log-tab-btn active" data-log="tunnel-out">stdout</button>
+            <button class="log-tab-btn" data-log="tunnel-err">stderr</button>
+          </div>
+          <pre id="log-tunnel" class="log-view"></pre>
+        </details>
+      </div>
+
+      <div class="card service-card">
+        <div class="service-row">
+          <div>
+            <strong>This panel</strong>
+            <span id="svc-panel-pill" class="pill">-</span>
+          </div>
+          <button class="restart-btn" data-target="panel">Restart</button>
+        </div>
+        <details><summary>Logs</summary>
+          <div class="log-tabs">
+            <button class="log-tab-btn active" data-log="panel-out">stdout</button>
+            <button class="log-tab-btn" data-log="panel-err">stderr</button>
+          </div>
+          <pre id="log-panel" class="log-view"></pre>
+        </details>
+      </div>
+
+      <div class="card">
+        <strong>Disk (C:)</strong>
+        <div id="disk-bar" class="disk-bar"><div id="disk-bar-fill" class="disk-bar-fill"></div></div>
+        <p id="disk-text" class="muted-text"></p>
       </div>
 
       <details class="card" open>
-        <summary>Config</summary>
-        <form id="config-form" class="config-form">
-          <label>Direction
-            <select id="cfg-direction">
-              <option value="two-way">Two-way</option>
-              <option value="pc-to-vps">PC &rarr; VPS only</option>
-              <option value="vps-to-pc">VPS &rarr; PC only</option>
-            </select>
-          </label>
-          <label>Auto-sync interval (minutes, 0 = off)
-            <input id="cfg-interval" type="number" min="0" inputmode="numeric" />
-          </label>
-          <label>Include patterns (one per line)
-            <textarea id="cfg-include" rows="3"></textarea>
-          </label>
-          <label>Exclude patterns (one per line)
-            <textarea id="cfg-exclude" rows="3"></textarea>
-          </label>
-          <button type="submit" class="primary">Save config</button>
+        <summary>Users</summary>
+        <div class="table-scroll">
+          <table id="users-table">
+            <thead><tr><th>Username</th><th>Role</th><th></th></tr></thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+        <form id="user-form" class="user-form">
+          <input id="user-form-username" type="text" placeholder="Username" autocapitalize="off" autocorrect="off" spellcheck="false" required />
+          <input id="user-form-pin" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="PIN (4-10 digits)" required />
+          <select id="user-form-role">
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button type="submit" class="primary">Add / update user</button>
+          <p id="user-form-error" class="error"></p>
         </form>
       </details>
 
-      <details class="card">
-        <summary>History</summary>
+      <details class="card" open>
+        <summary>Connected MCP clients</summary>
         <div class="table-scroll">
-          <table id="history-table">
-            <thead>
-              <tr><th>Time</th><th>Op</th><th>Path</th><th>Direction</th><th>Result</th></tr>
-            </thead>
-            <tbody id="history-body"></tbody>
+          <table id="oauth-table">
+            <thead><tr><th>Client</th><th>Redirect host</th></tr></thead>
+            <tbody id="oauth-clients-body"></tbody>
           </table>
         </div>
+        <p class="muted-text">Accounts with an active refresh token:</p>
+        <ul id="oauth-emails" class="plain-list"></ul>
       </details>
     </section>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
