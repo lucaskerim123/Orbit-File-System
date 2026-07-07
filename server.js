@@ -6,11 +6,11 @@ import cron from "node-cron";
 import { makeNodeClient } from "./node-client.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { runSync, readHistory } from "./sync.js";
+import { verifyLogin, validateSession, invalidateSession } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PANEL_PORT || 4000;
-const PANEL_API_KEY = process.env.PANEL_API_KEY;
 
 const pcClient = makeNodeClient("pc", process.env.NODE_PC_URL, process.env.NODE_PC_API_KEY);
 const vpsClient = makeNodeClient("vps", process.env.NODE_VPS_URL, process.env.NODE_VPS_API_KEY);
@@ -39,13 +39,34 @@ scheduleSync();
 const app = express();
 app.use(express.json());
 
-function checkAuth(req) {
+function sessionUser(req) {
   const auth = req.headers["authorization"];
-  return !!auth && auth === `Bearer ${PANEL_API_KEY}`;
+  if (!auth || !auth.startsWith("Bearer ")) return null;
+  return validateSession(auth.slice(7));
 }
 
+app.post("/api/login", async (req, res) => {
+  const { username, pin } = req.body || {};
+  if (!username || !pin) return res.status(400).json({ error: "username and pin required" });
+  try {
+    const token = await verifyLogin(username, pin);
+    if (!token) return res.status(401).json({ error: "Invalid username or PIN" });
+    res.json({ token, username });
+  } catch (err) {
+    res.status(429).json({ error: err.message });
+  }
+});
+
+app.post("/api/logout", (req, res) => {
+  const auth = req.headers["authorization"];
+  if (auth?.startsWith("Bearer ")) invalidateSession(auth.slice(7));
+  res.json({ ok: true });
+});
+
 app.use("/api", (req, res, next) => {
-  if (!checkAuth(req)) return res.status(401).json({ error: "Unauthorized" });
+  const username = sessionUser(req);
+  if (!username) return res.status(401).json({ error: "Unauthorized" });
+  req.username = username;
   next();
 });
 

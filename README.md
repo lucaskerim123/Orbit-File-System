@@ -25,15 +25,28 @@ history log.
    cp config.example.json config.json
    ```
 3. Edit `.env`:
-   - `PANEL_API_KEY` — pick a new secret; this is what you'll type into the
-     panel's login screen.
    - `NODE_PC_URL` / `NODE_PC_API_KEY` — your PC's public tunnel URL and its
      `HIVE_API_KEY`.
    - `NODE_VPS_URL` / `NODE_VPS_API_KEY` — usually `http://localhost:3939`
      and the VPS Hive instance's `HIVE_API_KEY`.
 4. Adjust `config.json` if you want a different sync direction, interval, or
    include/exclude patterns (also editable later from the panel's Sync tab).
-5. Start it: `npm start` (listens on `PANEL_PORT`, default `4000`).
+5. Create at least one login account (username + PIN):
+   ```
+   node scripts/add-user.mjs lucas 482917
+   ```
+   Add one line per person who needs access; re-running with an existing
+   username replaces their PIN.
+6. Start it: `npm start` (listens on `PANEL_PORT`, default `4000`).
+
+## Login
+
+Each user logs in with a username + PIN (not a shared key). PINs are hashed
+(scrypt) in `users.json` — never stored in plain text — and a login issues a
+12-hour session token. Five wrong PIN attempts for a username lock it out for
+15 minutes. Manage accounts with `node scripts/add-user.mjs <username> <pin>`;
+there's no in-app user management UI by design, since this is meant for a
+small, trusted set of people with shell access to the server.
 
 ## Running as a service (systemd)
 
@@ -74,8 +87,41 @@ server {
 }
 ```
 
-Put this behind HTTPS (e.g. certbot) since the panel's own `PANEL_API_KEY` is
-sent as a bearer token from the browser.
+Put this behind HTTPS (e.g. certbot) since login PINs and session tokens are
+sent from the browser.
+
+## Running on IIS (Windows Server)
+
+Node/Express doesn't run inside IIS's worker process natively. The
+straightforward way to put this behind IIS is a reverse proxy — run the
+Node app as its own background process on the VPS, and have IIS forward
+requests to it (the same shape as the nginx setup above):
+
+1. Run the panel as a persistent Windows process. The simplest option is
+   [NSSM](https://nssm.cc/) (Non-Sucking Service Manager):
+   ```
+   nssm install MasterBrainPanel "C:\Program Files\nodejs\node.exe" "C:\the-master-brain\server.js"
+   nssm set MasterBrainPanel AppDirectory "C:\the-master-brain"
+   nssm start MasterBrainPanel
+   ```
+   (dotenv reads `.env` from `AppDirectory`, same as running `npm start`
+   manually.) `pm2` with `pm2-windows-startup` is an equally fine alternative.
+2. Install the **URL Rewrite** and **Application Request Routing (ARR)**
+   modules for IIS (both free Microsoft downloads).
+3. In IIS Manager, select the server node → Application Request Routing
+   Cache → Server Proxy Settings → check "Enable proxy".
+4. On the site you want to serve the panel from, add a URL Rewrite rule:
+   - Match: pattern `(.*)`
+   - Action: rewrite to `http://localhost:4000/{R:1}`
+5. Bind that site to HTTPS with a certificate (IIS Manager → Bindings), since
+   login PINs and session tokens travel over this connection.
+
+An alternative is [`iisnode`](https://github.com/Azure/iisnode), which hosts
+Node apps directly inside IIS's own worker process instead of proxying to a
+separate one. It avoids running a second process, but it's much less
+actively maintained and has its own quirks around static file serving and
+process recycling — the reverse-proxy approach above is simpler and easier
+to reason about, so it's the one recommended here.
 
 ## Notes
 
