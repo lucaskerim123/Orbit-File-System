@@ -69,7 +69,7 @@
             <button id="save-file-btn" class="primary">Save</button>
             <button id="editor-download-btn">⬇ Download</button>
             <button id="move-file-btn">Move</button>
-            <button id="delete-file-btn" class="danger">Move To Trash</button>
+            <button id="delete-file-btn" class="danger">Delete</button>
           </div>
           <div id="editor-rendered" class="rendered-view hidden"></div>
           <textarea id="editor-content" spellcheck="false"></textarea>
@@ -87,7 +87,7 @@
               <button id="preview-permission-btn" class="hidden">Permission</button>
               <button id="preview-download-btn" class="primary">⬇ Download</button>
               <button id="preview-move-btn">Move</button>
-              <button id="preview-delete-btn" class="danger">Move To Trash</button>
+              <button id="preview-delete-btn" class="danger">Delete</button>
             </div>
           </div>
         </div>
@@ -231,17 +231,6 @@
             <button class="control-btn" data-target="panel" data-action="restart">Restart</button>
           </div>
         </div>
-      </details>
-
-      <details class="card" open>
-        <summary>Trash settings</summary>
-        <p class="muted-text">Admin only. File deletes from the panel move items into `_trash`. Auto-purge timing and full emptying are controlled here.</p>
-        <form id="trash-config-form" class="user-form">
-          <input id="trash-retention-days" type="number" min="1" max="365" placeholder="Retention days" required />
-          <button type="submit" class="primary">Save retention</button>
-          <button type="button" id="empty-trash-btn" class="danger">Empty Bin Now</button>
-          <p id="trash-config-message" class="muted-text"></p>
-        </form>
       </details>
 
       <details class="card">

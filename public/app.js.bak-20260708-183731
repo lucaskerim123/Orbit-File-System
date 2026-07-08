@@ -277,8 +277,8 @@ function renderRow(list, entry) {
   const del = document.createElement("button");
   del.className = "icon-btn danger";
   del.textContent = "🗑";
-  del.title = "Move to trash";
-  del.addEventListener("click", (e) => { e.stopPropagation(); trashPath(full); });
+  del.title = "Delete";
+  del.addEventListener("click", (e) => { e.stopPropagation(); deletePath(full); });
   actions.appendChild(del);
 
   li.appendChild(actions);
@@ -431,20 +431,16 @@ document.getElementById("save-file-btn").addEventListener("click", async () => {
 });
 
 document.getElementById("editor-download-btn").addEventListener("click", () => state.openFile && downloadFile(state.openFile));
-document.getElementById("delete-file-btn").addEventListener("click", () => state.openFile && trashPath(state.openFile, closeAllPanels));
-document.getElementById("preview-delete-btn").addEventListener("click", () => state.previewFile && trashPath(state.previewFile, closeAllPanels));
+document.getElementById("delete-file-btn").addEventListener("click", () => state.openFile && deletePath(state.openFile, closeAllPanels));
+document.getElementById("preview-delete-btn").addEventListener("click", () => state.previewFile && deletePath(state.previewFile, closeAllPanels));
 document.getElementById("move-file-btn").addEventListener("click", () => state.openFile && movePrompt(state.openFile, closeAllPanels));
 document.getElementById("preview-move-btn").addEventListener("click", () => state.previewFile && movePrompt(state.previewFile, closeAllPanels));
 document.getElementById("preview-download-btn").addEventListener("click", () => state.previewFile && downloadFile(state.previewFile));
 
-async function trashPath(filepath, onDone) {
-  if (!confirm(`Move ${filepath} to _trash?`)) return;
+async function deletePath(filepath, onDone) {
+  if (!confirm(`Delete ${filepath}?`)) return;
   try {
-    await api("/api/trash", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: filepath }),
-    });
+    await api(`/api/file?path=${encodeURIComponent(filepath)}`, { method: "DELETE" });
     onDone?.();
     loadFiles();
   } catch (err) {
@@ -851,18 +847,7 @@ async function loadSystem() {
     renderFlowStatus(hiveRunning, { clients: [] });
   }
 
-  if (state.role === "admin") loadTrashConfig();
   loadUsers();
-}
-
-async function loadTrashConfig() {
-  try {
-    const config = await api("/api/system/trash-config");
-    document.getElementById("trash-retention-days").value = config.retentionDays;
-    document.getElementById("trash-config-message").textContent = `Auto-empty after ${config.retentionDays} day${config.retentionDays === 1 ? "" : "s"}.`;
-  } catch (err) {
-    document.getElementById("trash-config-message").textContent = err.message;
-  }
 }
 
 // --- Users (admin only) ---------------------------------------------------
@@ -921,38 +906,6 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
     loadUsers();
   } catch (err) {
     errorEl.textContent = err.message;
-  }
-});
-
-document.getElementById("trash-config-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const days = Number(document.getElementById("trash-retention-days").value);
-  const messageEl = document.getElementById("trash-config-message");
-  messageEl.textContent = "";
-  try {
-    const resp = await api("/api/system/trash-config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ retentionDays: days }),
-    });
-    messageEl.textContent = `Auto-empty set to ${resp.retentionDays} day${resp.retentionDays === 1 ? "" : "s"}.`;
-  } catch (err) {
-    messageEl.textContent = err.message;
-  }
-});
-
-document.getElementById("empty-trash-btn").addEventListener("click", async () => {
-  if (!confirm("Permanently delete everything in _trash?")) return;
-  const messageEl = document.getElementById("trash-config-message");
-  messageEl.textContent = "";
-  try {
-    const resp = await api("/api/trash/empty", { method: "POST" });
-    messageEl.textContent = resp.deletedCount
-      ? `Deleted ${resp.deletedCount} trash entr${resp.deletedCount === 1 ? "y" : "ies"}.`
-      : "Trash is already empty.";
-    if (state.subpath === "_trash") loadFiles();
-  } catch (err) {
-    messageEl.textContent = err.message;
   }
 });
 

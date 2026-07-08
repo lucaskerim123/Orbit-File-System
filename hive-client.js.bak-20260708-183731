@@ -46,38 +46,6 @@ export function makeHiveClient(baseUrl, apiKey) {
     if (!resp.ok) throw new Error(`delete failed: ${resp.status}`);
   }
 
-  async function moveToTrash(filepath) {
-    const resp = await fetch(new URL("/api/trash", baseUrl), {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ path: filepath }),
-    });
-    if (!resp.ok) throw new Error(`trash move failed: ${resp.status}`);
-    return resp.json();
-  }
-
-  async function emptyTrash() {
-    const resp = await fetch(new URL("/api/trash/empty", baseUrl), { method: "POST", headers });
-    if (!resp.ok) throw new Error(`empty trash failed: ${resp.status}`);
-    return resp.json();
-  }
-
-  async function getTrashConfig() {
-    const resp = await fetch(new URL("/api/trash/config", baseUrl), { headers });
-    if (!resp.ok) throw new Error(`get trash config failed: ${resp.status}`);
-    return resp.json();
-  }
-
-  async function setTrashConfig(retentionDays) {
-    const resp = await fetch(new URL("/api/trash/config", baseUrl), {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ retentionDays }),
-    });
-    if (!resp.ok) throw new Error(`set trash config failed: ${resp.status}`);
-    return resp.json();
-  }
-
   async function moveFile(from, to) {
     const resp = await fetch(new URL("/api/move", baseUrl), {
       method: "POST",
@@ -123,5 +91,5 @@ export function makeHiveClient(baseUrl, apiKey) {
   // Upload/download are proxied by server.js as raw byte streams rather than
   // wrapped here, so large files never get buffered into a JS string.
 
-  return { baseUrl, headers, ping, listFiles, readFile, writeFile, deleteFile, moveToTrash, emptyTrash, getTrashConfig, setTrashConfig, moveFile, mkdir, previewSort, applySort, oauthState };
+  return { baseUrl, headers, ping, listFiles, readFile, writeFile, deleteFile, moveFile, mkdir, previewSort, applySort, oauthState };
 }

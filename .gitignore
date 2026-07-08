@@ -6,3 +6,5 @@ Claude.msix
 website/CLAUDE.md
 logs/master-brain-panel-events.jsonl
 logs/master-brain-panel-events.jsonl
+logs/master-brain-panel-errors.jsonl
+logs/master-brain-panel-events.jsonl
