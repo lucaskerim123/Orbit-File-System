@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "path": "_system/chatgpt_mcp_instructions.md",
+      "role": "admin"
+    },
+    {
+      "path": "_system/claude_mcp_instructions.md",
+      "role": "admin"
+    }
+  ]
+}
