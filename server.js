@@ -153,9 +153,17 @@ app.post("/api/move", express.json(), async (req, res) => {
   }
 });
 
-app.post("/api/sort", async (req, res) => {
+app.post("/api/sort/preview", async (req, res) => {
   try {
-    res.json(await hive.sortInbox());
+    res.json(await hive.previewSort());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/sort/apply", express.json(), async (req, res) => {
+  try {
+    res.json(await hive.applySort(req.body?.moves));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
