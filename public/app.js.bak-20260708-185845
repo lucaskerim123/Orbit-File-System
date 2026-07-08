@@ -45,17 +45,6 @@ const CM_MODES = {
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
 const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "m4v", "ogv"]);
 const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "ogg", "m4a", "flac", "aac"]);
-const PROTECTED_ROOT_FOLDERS = new Set([
-  "_system",
-  "_sorter",
-  "🗑 Trash",
-  "_trash",
-  "0. Core Folder",
-  "1. Master Court System",
-  "2. Mental Health System",
-  "3. Legal Charges - AVO",
-  "Media",
-]);
 
 function extOf(name) {
   const i = name.lastIndexOf(".");
@@ -77,11 +66,6 @@ function mediaKindFor(name) {
   if (AUDIO_EXTENSIONS.has(ext)) return "audio";
   if (ext === "pdf") return "pdf";
   return null;
-}
-
-function isProtectedRootFolderPath(filepath, entryType = "") {
-  const normalized = String(filepath || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  return entryType === "dir" && PROTECTED_ROOT_FOLDERS.has(normalized);
 }
 
 function formatBytes(n) {
@@ -289,7 +273,6 @@ function renderRow(list, entry) {
   mv.title = "Move / rename";
   mv.addEventListener("click", (e) => { e.stopPropagation(); movePrompt(full); });
   actions.appendChild(mv);
-  if (isProtectedRootFolderPath(full, entry.type)) actions.querySelector(".icon-btn")?.remove();
 
   const del = document.createElement("button");
   del.className = "icon-btn danger";
@@ -297,7 +280,6 @@ function renderRow(list, entry) {
   del.title = "Move to trash";
   del.addEventListener("click", (e) => { e.stopPropagation(); trashPath(full); });
   actions.appendChild(del);
-  if (isProtectedRootFolderPath(full, entry.type)) actions.querySelector(".icon-btn.danger")?.remove();
 
   li.appendChild(actions);
   list.appendChild(li);
@@ -456,7 +438,7 @@ document.getElementById("preview-move-btn").addEventListener("click", () => stat
 document.getElementById("preview-download-btn").addEventListener("click", () => state.previewFile && downloadFile(state.previewFile));
 
 async function trashPath(filepath, onDone) {
-  if (!confirm(`Move ${filepath} to 🗑 Trash?`)) return;
+  if (!confirm(`Move ${filepath} to _trash?`)) return;
   try {
     await api("/api/trash", {
       method: "POST",
@@ -960,15 +942,15 @@ document.getElementById("trash-config-form").addEventListener("submit", async (e
 });
 
 document.getElementById("empty-trash-btn").addEventListener("click", async () => {
-  if (!confirm("Permanently delete everything in 🗑 Trash?")) return;
+  if (!confirm("Permanently delete everything in _trash?")) return;
   const messageEl = document.getElementById("trash-config-message");
   messageEl.textContent = "";
   try {
     const resp = await api("/api/trash/empty", { method: "POST" });
     messageEl.textContent = resp.deletedCount
       ? `Deleted ${resp.deletedCount} trash entr${resp.deletedCount === 1 ? "y" : "ies"}.`
-      : "🗑 Trash is already empty.";
-    if (state.subpath === "🗑 Trash" || state.subpath === "_trash") loadFiles();
+      : "Trash is already empty.";
+    if (state.subpath === "_trash") loadFiles();
   } catch (err) {
     messageEl.textContent = err.message;
   }
