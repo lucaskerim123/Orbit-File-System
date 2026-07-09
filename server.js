@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -11,13 +11,16 @@ import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser,
 import { canAccessPath, filterEntriesForRole, listPermissions, setPermission, clearPermission } from "./permissions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, ".env") });
 const PORT = process.env.PANEL_PORT || 4000;
 const LOG_DIR = path.join(__dirname, "logs");
 const PANEL_EVENT_LOG = path.join(LOG_DIR, "master-brain-panel-events.jsonl");
 const PANEL_ERROR_LOG = path.join(LOG_DIR, "master-brain-panel-errors.jsonl");
 const PANEL_SERVICE_NAME = process.env.PANEL_SERVICE_NAME || "MasterBrainPanel";
+const HIVE_SERVICE_NAME = process.env.HIVE_SERVICE_NAME || "MasterHiveServer";
 const HIVE_SERVER_DIR = process.env.HIVE_SERVER_DIR || "C:\\mcp-hive-server";
 const HIVE_LOG_DIR = process.env.HIVE_LOG_DIR || path.join(HIVE_SERVER_DIR, "logs");
+const CLOUDFLARED_SERVICE_NAME = process.env.CLOUDFLARED_SERVICE_NAME || "MasterHiveTunnel";
 const CLOUDFLARED_DIR = process.env.CLOUDFLARED_DIR || "C:\\cloudflared";
 const POWERSHELL_CANDIDATES = [
   process.env.PANEL_POWERSHELL_PATH,
@@ -31,6 +34,7 @@ const POWERSHELL_CANDIDATES = [
 const hive = makeHiveClient(process.env.HIVE_URL, process.env.HIVE_API_KEY);
 
 const app = express();
+app.set("etag", false);
 
 function resolvePowerShellCommand() {
   for (const candidate of POWERSHELL_CANDIDATES) {
@@ -111,6 +115,7 @@ app.post("/api/logout", (req, res) => {
 });
 
 app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store");
   if (req.path === "/login" || req.path === "/logout") return next();
   const session = sessionOf(req);
   if (!session) return res.status(401).json({ error: "Unauthorized" });
@@ -339,7 +344,20 @@ function runPs(args) {
 
 app.get("/api/system/status", async (req, res) => {
   try {
-    const out = await runPs(["-File", path.join(__dirname, "scripts", "system-status.ps1")]);
+    const out = await runPs([
+      "-File",
+      path.join(__dirname, "scripts", "system-status.ps1"),
+      "-PanelServiceName",
+      PANEL_SERVICE_NAME,
+      "-HiveServiceName",
+      HIVE_SERVICE_NAME,
+      "-HiveDir",
+      HIVE_SERVER_DIR,
+      "-CloudflaredServiceName",
+      CLOUDFLARED_SERVICE_NAME,
+      "-CloudflaredDir",
+      CLOUDFLARED_DIR,
+    ]);
     const status = JSON.parse(out);
     const hiveOk = await hive.ping();
     status.hive = {
@@ -376,7 +394,27 @@ app.post("/api/system/control", requireAdmin, express.json(), async (req, res) =
     res.json({ ok: true, note: `Panel ${verb} - reconnect in a few seconds.` });
     const child = spawn(
       POWERSHELL_CMD,
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-Target", "panel", "-Action", action],
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        scriptPath,
+        "-Target",
+        "panel",
+        "-Action",
+        action,
+        "-PanelServiceName",
+        PANEL_SERVICE_NAME,
+        "-HiveServiceName",
+        HIVE_SERVICE_NAME,
+        "-HiveDir",
+        HIVE_SERVER_DIR,
+        "-CloudflaredServiceName",
+        CLOUDFLARED_SERVICE_NAME,
+        "-CloudflaredDir",
+        CLOUDFLARED_DIR,
+      ],
       { detached: true, stdio: ["ignore", "pipe", "pipe"] }
     );
     child.stdout.on("data", (d) => logEvent("panel.control.child.stdout", { data: d.toString() }));
@@ -388,7 +426,7 @@ app.post("/api/system/control", requireAdmin, express.json(), async (req, res) =
   }
 
   try {
-    await runPs([
+    const out = await runPs([
       "-File",
       scriptPath,
       "-Target",
@@ -397,12 +435,16 @@ app.post("/api/system/control", requireAdmin, express.json(), async (req, res) =
       action,
       "-PanelServiceName",
       PANEL_SERVICE_NAME,
+      "-HiveServiceName",
+      HIVE_SERVICE_NAME,
       "-HiveDir",
       HIVE_SERVER_DIR,
+      "-CloudflaredServiceName",
+      CLOUDFLARED_SERVICE_NAME,
       "-CloudflaredDir",
       CLOUDFLARED_DIR,
     ]);
-    res.json({ ok: true });
+    res.json(out ? JSON.parse(out) : { ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

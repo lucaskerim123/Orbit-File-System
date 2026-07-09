@@ -8,19 +8,45 @@ param(
 
   [string]$PanelServiceName = $(if ($env:PANEL_SERVICE_NAME) { $env:PANEL_SERVICE_NAME } else { "MasterBrainPanel" }),
 
+  [string]$HiveServiceName = $(if ($env:HIVE_SERVICE_NAME) { $env:HIVE_SERVICE_NAME } else { "MasterHiveServer" }),
+
   [string]$HiveDir = $(if ($env:HIVE_SERVER_DIR) { $env:HIVE_SERVER_DIR } else { "C:\mcp-hive-server" }),
+
+  [string]$CloudflaredServiceName = $(if ($env:CLOUDFLARED_SERVICE_NAME) { $env:CLOUDFLARED_SERVICE_NAME } else { "MasterHiveTunnel" }),
 
   [string]$CloudflaredDir = $(if ($env:CLOUDFLARED_DIR) { $env:CLOUDFLARED_DIR } else { "C:\cloudflared" })
 )
 
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$ErrorActionPreference = "Stop"
 
 $HiveServerScript = Join-Path $HiveDir "server.js"
 $HiveOutLog = Join-Path $HiveDir "out.log"
 $HiveErrLog = Join-Path $HiveDir "err.log"
+$HivePingUrl = if ($env:HIVE_URL) { "$($env:HIVE_URL.TrimEnd('/'))/api/ping" } else { "http://localhost:3939/api/ping" }
+$HiveShutdownUrl = if ($env:HIVE_URL) { "$($env:HIVE_URL.TrimEnd('/'))/api/admin/shutdown" } else { "http://localhost:3939/api/admin/shutdown" }
+$HiveApiKey = if ($env:HIVE_API_KEY) { $env:HIVE_API_KEY } else { "" }
 $CloudflaredExe = if ($env:CLOUDFLARED_EXE) { $env:CLOUDFLARED_EXE } else { Join-Path $CloudflaredDir "cloudflared.exe" }
 $CloudflaredConfig = if ($env:CLOUDFLARED_CONFIG) { $env:CLOUDFLARED_CONFIG } else { Join-Path $HOME ".cloudflared\config.yml" }
 $CloudflaredTunnelName = if ($env:CLOUDFLARED_TUNNEL_NAME) { $env:CLOUDFLARED_TUNNEL_NAME } else { "master-hive" }
+
+function Assert-ServiceExists {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
+
+  $null = Get-Service -Name $Name -ErrorAction Stop
+}
+
+function Test-ServiceExists {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
+
+  [bool](Get-Service -Name $Name -ErrorAction SilentlyContinue)
+}
 
 function Get-HiveProcesses {
   try {
@@ -28,6 +54,37 @@ function Get-HiveProcesses {
       Where-Object { $_.CommandLine -like (Get-HiveCommandPattern) }
   } catch {
     @()
+  }
+}
+
+function Get-HivePids {
+  $ids = New-Object System.Collections.Generic.List[int]
+
+  try {
+    $lines = & 'C:\Windows\System32\netstat.exe' -ano | Select-String ':3939'
+    foreach ($line in $lines) {
+      if ($line.Line -match 'LISTENING\s+(\d+)\s*$') {
+        $parsedPid = 0
+        if ([int]::TryParse($matches[1], [ref]$parsedPid)) {
+          $proc = Get-Process -Id $parsedPid -ErrorAction SilentlyContinue
+          if ($proc -and $proc.ProcessName -eq "node") {
+            $ids.Add($parsedPid)
+          }
+        }
+      }
+    }
+  } catch {
+  }
+
+  $ids | Select-Object -Unique
+}
+
+function Test-HiveHttp {
+  try {
+    $resp = Invoke-WebRequest -Uri $HivePingUrl -Method GET -TimeoutSec 3 -UseBasicParsing
+    return ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300)
+  } catch {
+    return $false
   }
 }
 
@@ -53,88 +110,131 @@ function Start-BackgroundCommand {
     [string]$StderrPath
   )
 
-  function Quote-Arg([string]$value) {
-    if ($value -match '[\s"]') {
-      return '"' + ($value -replace '"', '\"') + '"'
+  $argumentString = ($Arguments | ForEach-Object {
+    if ($_ -match '[\s"]') {
+      '"' + ($_ -replace '"', '\"') + '"'
+    } else {
+      $_
     }
-    return $value
-  }
-
-  function Resolve-WritableLogPath([string]$preferredPath, [string]$fallbackName) {
-    try {
-      $dir = Split-Path -Parent $preferredPath
-      if ($dir) {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
-      }
-      $test = [System.IO.File]::Open($preferredPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
-      $test.Dispose()
-      return $preferredPath
-    } catch {
-      $fallbackDir = Join-Path $env:TEMP "master-brain"
-      New-Item -ItemType Directory -Force -Path $fallbackDir | Out-Null
-      return (Join-Path $fallbackDir $fallbackName)
-    }
-  }
+  }) -join " "
 
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $Executable
-  $psi.Arguments = ($Arguments | ForEach-Object { Quote-Arg $_ }) -join " "
+  $psi.Arguments = $argumentString
   $psi.WorkingDirectory = $WorkingDirectory
-  $psi.UseShellExecute = $false
-  $psi.CreateNoWindow = $true
-  $psi.RedirectStandardOutput = $true
-  $psi.RedirectStandardError = $true
+  $psi.UseShellExecute = $true
+  $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 
   $proc = New-Object System.Diagnostics.Process
   $proc.StartInfo = $psi
   if (-not $proc.Start()) {
     throw "Failed to start $Executable"
   }
-
-  $StdoutPath = Resolve-WritableLogPath $StdoutPath "stdout.log"
-  $StderrPath = Resolve-WritableLogPath $StderrPath "stderr.log"
-  $stdoutWriter = [System.IO.StreamWriter]::new($StdoutPath, $true, [System.Text.UTF8Encoding]::new($false))
-  $stderrWriter = [System.IO.StreamWriter]::new($StderrPath, $true, [System.Text.UTF8Encoding]::new($false))
-
-  Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -Action {
-    if ($EventArgs.Data) { $stdoutWriter.WriteLine($EventArgs.Data); $stdoutWriter.Flush() }
-  } | Out-Null
-  Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -Action {
-    if ($EventArgs.Data) { $stderrWriter.WriteLine($EventArgs.Data); $stderrWriter.Flush() }
-  } | Out-Null
-  Register-ObjectEvent -InputObject $proc -EventName Exited -Action {
-    $stdoutWriter.Dispose()
-    $stderrWriter.Dispose()
-  } | Out-Null
-
-  $proc.EnableRaisingEvents = $true
-  $proc.BeginOutputReadLine()
-  $proc.BeginErrorReadLine()
+  $proc
 }
 
 function Stop-HiveProcess {
-  Get-HiveProcesses | ForEach-Object {
-    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+  if (Test-ServiceExists -Name $HiveServiceName) {
+    Stop-Service -Name $HiveServiceName -Force -ErrorAction Stop
+    for ($i = 0; $i -lt 12; $i++) {
+      if (-not (Test-HiveHttp)) { return }
+      Start-Sleep -Seconds 1
+    }
+    throw "Hive service '$HiveServiceName' stop requested but $HivePingUrl is still responding."
+  }
+
+  $stoppedAny = $false
+  if (Test-HiveHttp -and $HiveApiKey) {
+    try {
+      Invoke-WebRequest -Uri $HiveShutdownUrl -Method POST -Headers @{ Authorization = "Bearer $HiveApiKey"; "X-Hive-Flow" = "webpanel" } -TimeoutSec 5 -UseBasicParsing | Out-Null
+      $stoppedAny = $true
+    } catch {
+    }
+  }
+
+  if (Test-HiveHttp) {
+    foreach ($hiveProcessId in @(Get-HivePids)) {
+      & 'C:\Windows\System32\taskkill.exe' /PID $hiveProcessId /T /F | Out-Null
+      $stoppedAny = $true
+    }
+  }
+
+  for ($i = 0; $i -lt 8; $i++) {
+    if (-not (Test-HiveHttp)) {
+      return
+    }
+    Start-Sleep -Seconds 1
+  }
+
+  if ($stoppedAny -or (Test-HiveHttp)) {
+    throw "Hive server stop requested but $HivePingUrl is still responding."
   }
 }
 
 function Start-HiveProcess {
-  $running = Get-HiveProcesses
-  if (-not $running) {
-    Start-BackgroundCommand `
+  if (Test-ServiceExists -Name $HiveServiceName) {
+    Start-Service -Name $HiveServiceName -ErrorAction Stop
+    for ($i = 0; $i -lt 20; $i++) {
+      Start-Sleep -Seconds 1
+      if (Test-HiveHttp) {
+        return
+      }
+    }
+    throw "Hive service '$HiveServiceName' started but $HivePingUrl did not come up."
+  }
+
+  if (-not (Test-Path -LiteralPath $HiveDir)) {
+    throw "Hive directory not found: $HiveDir"
+  }
+  if (-not (Test-Path -LiteralPath $HiveServerScript)) {
+    throw "Hive server entry file not found: $HiveServerScript"
+  }
+
+  if (-not (Test-HiveHttp)) {
+    $proc = Start-BackgroundCommand `
       -Executable "node" `
       -Arguments @($HiveServerScript) `
       -WorkingDirectory $HiveDir `
       -StdoutPath $HiveOutLog `
       -StderrPath $HiveErrLog
+
+    for ($i = 0; $i -lt 12; $i++) {
+      Start-Sleep -Seconds 1
+      if (Test-HiveHttp) {
+        return
+      }
+      if ($proc.HasExited) {
+        $stderr = if (Test-Path -LiteralPath $HiveErrLog) { (Get-Content $HiveErrLog -Tail 40 -ErrorAction SilentlyContinue) -join "`n" } else { "" }
+        $stdout = if (Test-Path -LiteralPath $HiveOutLog) { (Get-Content $HiveOutLog -Tail 20 -ErrorAction SilentlyContinue) -join "`n" } else { "" }
+        $message = "Hive server exited during startup."
+        if ($stderr) { $message += " stderr: $stderr" }
+        elseif ($stdout) { $message += " stdout: $stdout" }
+        throw $message
+      }
+    }
+
+    $stderr = if (Test-Path -LiteralPath $HiveErrLog) { (Get-Content $HiveErrLog -Tail 40 -ErrorAction SilentlyContinue) -join "`n" } else { "" }
+    $stdout = if (Test-Path -LiteralPath $HiveOutLog) { (Get-Content $HiveOutLog -Tail 20 -ErrorAction SilentlyContinue) -join "`n" } else { "" }
+    $message = "Hive server process started but /api/ping did not come up at $HivePingUrl."
+    if ($stderr) { $message += " stderr: $stderr" }
+    elseif ($stdout) { $message += " stdout: $stdout" }
+    throw $message
   }
 }
 
 function Stop-TunnelProcess {
+  if (Test-ServiceExists -Name $CloudflaredServiceName) {
+    Stop-Service -Name $CloudflaredServiceName -Force -ErrorAction Stop
+    return
+  }
   Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
 }
 
 function Start-TunnelProcess {
+  if (Test-ServiceExists -Name $CloudflaredServiceName) {
+    Start-Service -Name $CloudflaredServiceName -ErrorAction Stop
+    return
+  }
   $running = Get-Process cloudflared -ErrorAction SilentlyContinue
   if (-not $running) {
     Start-BackgroundCommand `
@@ -159,9 +259,9 @@ switch ("$Target.$Action") {
   "tunnel.stop"    { Stop-TunnelProcess }
   "tunnel.restart" { Stop-TunnelProcess; Start-Sleep -Seconds 1; Start-TunnelProcess }
 
-  "panel.start"    { Start-Service -Name $PanelServiceName }
-  "panel.stop"     { Start-Sleep -Seconds 1; Stop-Service -Name $PanelServiceName -Force }
-  "panel.restart"  { Start-Sleep -Seconds 1; Restart-Service -Name $PanelServiceName -Force }
+  "panel.start"    { Assert-ServiceExists -Name $PanelServiceName; Start-Service -Name $PanelServiceName -ErrorAction Stop }
+  "panel.stop"     { Assert-ServiceExists -Name $PanelServiceName; Start-Sleep -Seconds 1; Stop-Service -Name $PanelServiceName -Force -ErrorAction Stop }
+  "panel.restart"  { Assert-ServiceExists -Name $PanelServiceName; Start-Sleep -Seconds 1; Restart-Service -Name $PanelServiceName -Force -ErrorAction Stop }
 }
 
 Write-Output '{"ok":true}'

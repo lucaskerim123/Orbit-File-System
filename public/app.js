@@ -109,6 +109,29 @@ function api(path, opts = {}) {
   });
 }
 
+function setSystemControlMessage(message, tone = "muted") {
+  const el = document.getElementById("system-control-message");
+  if (!el) return;
+  el.textContent = message || "";
+  el.style.whiteSpace = "pre-wrap";
+  el.style.color = tone === "error" ? "var(--danger)" : tone === "success" ? "var(--ok)" : "";
+}
+
+function scheduleSystemRefresh(attempts = 5, delayMs = 2000) {
+  let remaining = attempts;
+  const tick = async () => {
+    try {
+      await loadSystem();
+    } finally {
+      remaining -= 1;
+      if (remaining > 0) {
+        setTimeout(tick, delayMs);
+      }
+    }
+  };
+  setTimeout(tick, delayMs);
+}
+
 function logout() {
   const token = state.token;
   localStorage.removeItem("panelToken");
@@ -687,15 +710,18 @@ document.querySelectorAll(".control-btn").forEach((btn) => {
     }
     if (!confirm(confirmMsg)) return;
     btn.disabled = true;
+    setSystemControlMessage(`${action[0].toUpperCase()}${action.slice(1)} ${target}...`);
     try {
       const body = await api("/api/system/control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target, action }),
       });
+      setSystemControlMessage(body.note || `${target} ${action} request completed.`, "success");
       if (body.note) alert(body.note);
-      setTimeout(loadSystem, 3000);
+      scheduleSystemRefresh(target === "hive" && action !== "stop" ? 8 : 3, 2000);
     } catch (err) {
+      setSystemControlMessage(err.message, "error");
       alert(err.message);
     } finally {
       btn.disabled = false;
