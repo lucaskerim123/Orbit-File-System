@@ -145,12 +145,36 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
   // only fall back to localhost if there's truly nothing there yet.
   const publicBaseUrl = String(input.publicBaseUrl || "").trim() || existingPublicBaseUrl || `http://localhost:${hivePort}`;
 
+  // OAuth (Cloudflare Access) is entirely optional - clients can always fall
+  // back to the bearer API key. Same non-clobber rule: blank means "leave
+  // whatever's already there alone", not "erase an existing OAuth setup".
+  const oauthOverrides = {};
+  for (const [field, envKey] of [
+    ["cfClientId", "CF_CLIENT_ID"],
+    ["cfClientSecret", "CF_CLIENT_SECRET"],
+    ["cfAuthorizeUrl", "CF_AUTHORIZE_URL"],
+    ["cfTokenUrl", "CF_TOKEN_URL"],
+  ]) {
+    const value = String(input[field] || "").trim();
+    if (value) oauthOverrides[envKey] = value;
+  }
+  const oauthConfigured =
+    Object.keys(oauthOverrides).length === 4 ||
+    (Object.keys(oauthOverrides).length === 0 &&
+      ["CF_CLIENT_ID", "CF_CLIENT_SECRET", "CF_AUTHORIZE_URL", "CF_TOKEN_URL"].every((k) => readEnvValue(hiveEnvPath, k)));
+  if (Object.keys(oauthOverrides).length > 0 && Object.keys(oauthOverrides).length < 4) {
+    const err = new Error("OAuth fields are all-or-nothing - fill in all four, or leave all four blank to skip OAuth.");
+    err.status = 400;
+    throw err;
+  }
+
   await upsertEnvFile(hiveEnvPath, hiveEnvExample, {
     HIVE_ROOT: dataFolder,
     HIVE_API_KEY: hiveApiKey,
     SESSION_SECRET: sessionSecret,
     PORT: hivePort,
     PUBLIC_BASE_URL: publicBaseUrl,
+    ...oauthOverrides,
   });
 
   const panelEnvPath = path.join(panelDir, ".env");
@@ -165,7 +189,13 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
 
   await upsertUser(adminUsername, adminPin, "admin");
 
-  return { hiveApiKey, hiveUrl: `http://localhost:${hivePort}`, dataFolder };
+  return {
+    hiveApiKey,
+    hiveUrl: `http://localhost:${hivePort}`,
+    dataFolder,
+    mcpUrl: `${publicBaseUrl.replace(/\/+$/, "")}/mcp`,
+    oauthConfigured,
+  };
 }
 
 // Best-effort: start the Hive server if it isn't already responding. Never

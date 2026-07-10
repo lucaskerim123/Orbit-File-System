@@ -1046,6 +1046,18 @@ document.getElementById("setup-pin-toggle").addEventListener("click", () => {
   btn.setAttribute("aria-label", showing ? "Show PIN" : "Hide PIN");
 });
 
+document.getElementById("setup-oauth-toggle").addEventListener("click", () => {
+  const fields = document.getElementById("setup-oauth-fields");
+  const btn = document.getElementById("setup-oauth-toggle");
+  const showing = !fields.classList.contains("hidden");
+  fields.classList.toggle("hidden");
+  btn.textContent = showing
+    ? "▸ Advanced: OAuth login for Claude/ChatGPT (optional)"
+    : "▾ Advanced: OAuth login for Claude/ChatGPT (optional)";
+});
+
+let setupLoginCreds = null;
+
 document.getElementById("setup-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById("setup-error");
@@ -1056,6 +1068,10 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
   const dataFolder = document.getElementById("setup-data-folder").value.trim();
   const hivePort = document.getElementById("setup-hive-port").value.trim() || "3939";
   const publicBaseUrl = document.getElementById("setup-public-url").value.trim();
+  const cfClientId = document.getElementById("setup-cf-client-id").value.trim();
+  const cfClientSecret = document.getElementById("setup-cf-client-secret").value.trim();
+  const cfAuthorizeUrl = document.getElementById("setup-cf-authorize-url").value.trim();
+  const cfTokenUrl = document.getElementById("setup-cf-token-url").value.trim();
   const adminUsername = document.getElementById("setup-admin-username").value.trim();
   const adminPin = document.getElementById("setup-admin-pin").value.trim();
 
@@ -1065,19 +1081,39 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
     const resp = await fetch("/api/setup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dataFolder, hivePort, publicBaseUrl, adminUsername, adminPin }),
+      body: JSON.stringify({
+        dataFolder, hivePort, publicBaseUrl,
+        cfClientId, cfClientSecret, cfAuthorizeUrl, cfTokenUrl,
+        adminUsername, adminPin,
+      }),
     });
     const body = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(body.error || "Setup failed");
 
-    statusEl.textContent = "Logging you in...";
+    setupLoginCreds = { username: adminUsername, pin: adminPin };
+    document.getElementById("setup-done-url").value = body.mcpUrl || "";
+    document.getElementById("setup-done-key").value = body.hiveApiKey || "";
+    document.getElementById("setup-done-oauth-note").classList.toggle("hidden", !body.oauthConfigured);
+    document.getElementById("setup-form").classList.add("hidden");
+    document.getElementById("setup-done").classList.remove("hidden");
+  } catch (err) {
+    statusEl.textContent = "";
+    errorEl.textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+document.getElementById("setup-done-continue").addEventListener("click", async () => {
+  if (!setupLoginCreds) return;
+  try {
     const loginResp = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: adminUsername, pin: adminPin }),
+      body: JSON.stringify(setupLoginCreds),
     });
     const loginBody = await loginResp.json().catch(() => ({}));
-    if (!loginResp.ok) throw new Error(loginBody.error || "Setup finished, but auto-login failed - log in below.");
+    if (!loginResp.ok) throw new Error(loginBody.error || "Auto-login failed - log in below.");
 
     state.token = loginBody.token;
     state.username = loginBody.username;
@@ -1088,10 +1124,9 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
     document.getElementById("setup").classList.add("hidden");
     showApp();
   } catch (err) {
-    statusEl.textContent = "";
-    errorEl.textContent = err.message;
-  } finally {
-    submitBtn.disabled = false;
+    document.getElementById("setup").classList.add("hidden");
+    document.getElementById("login").classList.remove("hidden");
+    document.getElementById("login-error").textContent = err.message;
   }
 });
 

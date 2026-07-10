@@ -45,6 +45,24 @@
 
       <label class="field-label" for="setup-public-url">Public URL <span class="field-optional">(optional, can set later)</span></label>
       <input id="setup-public-url" type="text" placeholder="https://your-domain.example.com" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <p class="field-hint">The address Claude/ChatGPT will connect to. Leave blank to keep whatever's already configured, or set it later.</p>
+
+      <button type="button" id="setup-oauth-toggle" class="link-btn setup-advanced-toggle">▸ Advanced: OAuth login for Claude/ChatGPT (optional)</button>
+      <div id="setup-oauth-fields" class="hidden">
+        <p class="field-hint">Only needed if you want Claude/ChatGPT to connect with a one-click login instead of pasting an API key. Requires a Cloudflare Access application already set up. Leave all blank to skip - the API key still works either way.</p>
+
+        <label class="field-label" for="setup-cf-client-id">Client ID</label>
+        <input id="setup-cf-client-id" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+
+        <label class="field-label" for="setup-cf-client-secret">Client Secret</label>
+        <input id="setup-cf-client-secret" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+
+        <label class="field-label" for="setup-cf-authorize-url">Authorize URL</label>
+        <input id="setup-cf-authorize-url" type="text" placeholder="https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/.../authorization" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+
+        <label class="field-label" for="setup-cf-token-url">Token URL</label>
+        <input id="setup-cf-token-url" type="text" placeholder="https://your-team.cloudflareaccess.com/cdn-cgi/access/sso/oidc/.../token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
 
       <hr class="field-divider" />
 
@@ -61,6 +79,20 @@
       <p id="setup-error" class="error"></p>
       <p id="setup-status" class="muted-text"></p>
     </form>
+
+    <div id="setup-done" class="hidden">
+      <div class="brand">
+        <span class="brand-mark">✅</span>
+        <h1>You're set up</h1>
+      </div>
+      <p class="field-hint">Connect Claude or ChatGPT to this server with:</p>
+      <label class="field-label">MCP URL</label>
+      <input id="setup-done-url" type="text" readonly />
+      <label class="field-label" id="setup-done-key-label">API key (bearer token)</label>
+      <input id="setup-done-key" type="text" readonly />
+      <p id="setup-done-oauth-note" class="field-hint hidden">OAuth is also configured - Claude/ChatGPT can connect with a one-click login instead of pasting the key above.</p>
+      <button type="button" id="setup-done-continue" class="primary">Continue to login</button>
+    </div>
   </div>
 
   <div id="app" class="hidden">

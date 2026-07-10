@@ -139,7 +139,13 @@ app.post("/api/setup", express.json(), async (req, res) => {
     process.env.HIVE_API_KEY = result.hiveApiKey;
     logEvent("panel.setup.complete", { dataFolder: result.dataFolder, adminUsername: req.body?.adminUsername });
     const hiveStatus = await tryStartHiveServer(HIVE_SERVER_DIR, result.hiveUrl);
-    res.json({ ok: true, hiveStatus });
+    res.json({
+      ok: true,
+      hiveStatus,
+      mcpUrl: result.mcpUrl,
+      hiveApiKey: result.hiveApiKey,
+      oauthConfigured: result.oauthConfigured,
+    });
   } catch (err) {
     if (!err.status) logError("panel.setup.error", err);
     res.status(err.status || 500).json({ error: err.message });
