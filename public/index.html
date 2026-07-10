@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" />
 </head>
 <body>
-  <div id="login" class="login-screen">
+  <div id="login" class="login-screen hidden">
     <form id="login-form">
       <div class="brand">
         <span class="brand-mark">🧠</span>
@@ -25,6 +25,41 @@
       </div>
       <button type="submit" class="primary">Enter</button>
       <p id="login-error" class="error"></p>
+    </form>
+  </div>
+
+  <div id="setup" class="login-screen hidden">
+    <form id="setup-form">
+      <div class="brand">
+        <span class="brand-mark">🧠</span>
+        <h1>Let's get set up</h1>
+      </div>
+      <p class="brand-subtitle">This only runs once, on first launch.</p>
+
+      <label class="field-label" for="setup-data-folder">Where should your files be stored?</label>
+      <input id="setup-data-folder" type="text" placeholder="e.g. D:\MyFiles" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <p class="field-hint">Full folder path. Created automatically if it doesn't exist yet.</p>
+
+      <label class="field-label" for="setup-hive-port">Server port</label>
+      <input id="setup-hive-port" type="number" min="1" max="65535" placeholder="3939" />
+
+      <label class="field-label" for="setup-public-url">Public URL <span class="field-optional">(optional, can set later)</span></label>
+      <input id="setup-public-url" type="text" placeholder="https://your-domain.example.com" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+
+      <hr class="field-divider" />
+
+      <label class="field-label" for="setup-admin-username">Your admin username</label>
+      <input id="setup-admin-username" type="text" placeholder="Username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" />
+
+      <label class="field-label" for="setup-admin-pin">Your admin PIN <span class="field-optional">(4-10 digits)</span></label>
+      <div class="pin-field">
+        <input id="setup-admin-pin" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="PIN" autocomplete="new-password" />
+        <button type="button" id="setup-pin-toggle" class="link-btn pin-toggle" aria-label="Show PIN">👁</button>
+      </div>
+
+      <button type="submit" class="primary">Finish setup</button>
+      <p id="setup-error" class="error"></p>
+      <p id="setup-status" class="muted-text"></p>
     </form>
   </div>
 

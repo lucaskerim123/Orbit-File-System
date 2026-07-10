@@ -9,6 +9,7 @@ import { Readable } from "stream";
 import { makeHiveClient } from "./hive-client.js";
 import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser, removeUser } from "./auth.js";
 import { canAccessPath, filterEntriesForRole, listPermissions, setPermission, clearPermission } from "./permissions.js";
+import { needsSetup, runSetup, tryStartHiveServer } from "./setup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -31,7 +32,7 @@ const POWERSHELL_CANDIDATES = [
   "pwsh.exe",
 ].filter(Boolean);
 
-const hive = makeHiveClient(process.env.HIVE_URL, process.env.HIVE_API_KEY);
+let hive = makeHiveClient(process.env.HIVE_URL, process.env.HIVE_API_KEY);
 
 const app = express();
 app.set("etag", false);
@@ -112,6 +113,37 @@ app.post("/api/logout", (req, res) => {
   const auth = req.headers["authorization"];
   if (auth?.startsWith("Bearer ")) invalidateSession(auth.slice(7));
   res.json({ ok: true });
+});
+
+// --- First-run setup -----------------------------------------------------
+// Unauthenticated on purpose (there's no admin to authenticate as yet), but
+// runSetup() itself refuses to do anything once an account already exists.
+
+app.get("/api/setup/status", async (req, res) => {
+  try {
+    res.json({ needsSetup: await needsSetup() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/setup", express.json(), async (req, res) => {
+  try {
+    const result = await runSetup(req.body || {}, {
+      panelDir: __dirname,
+      hiveServerDir: HIVE_SERVER_DIR,
+      panelPort: PORT,
+    });
+    hive = makeHiveClient(result.hiveUrl, result.hiveApiKey);
+    process.env.HIVE_URL = result.hiveUrl;
+    process.env.HIVE_API_KEY = result.hiveApiKey;
+    logEvent("panel.setup.complete", { dataFolder: result.dataFolder, adminUsername: req.body?.adminUsername });
+    const hiveStatus = await tryStartHiveServer(HIVE_SERVER_DIR, result.hiveUrl);
+    res.json({ ok: true, hiveStatus });
+  } catch (err) {
+    if (!err.status) logError("panel.setup.error", err);
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 app.use("/api", (req, res, next) => {

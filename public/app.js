@@ -1037,5 +1037,81 @@ document.getElementById("guarded-hardstop-form").addEventListener("submit", asyn
   }
 });
 
-if (state.token) showApp();
+document.getElementById("setup-pin-toggle").addEventListener("click", () => {
+  const pinInput = document.getElementById("setup-admin-pin");
+  const btn = document.getElementById("setup-pin-toggle");
+  const showing = pinInput.type === "text";
+  pinInput.type = showing ? "password" : "text";
+  btn.textContent = showing ? "👁" : "🙈";
+  btn.setAttribute("aria-label", showing ? "Show PIN" : "Hide PIN");
+});
+
+document.getElementById("setup-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById("setup-error");
+  const statusEl = document.getElementById("setup-status");
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  errorEl.textContent = "";
+
+  const dataFolder = document.getElementById("setup-data-folder").value.trim();
+  const hivePort = document.getElementById("setup-hive-port").value.trim() || "3939";
+  const publicBaseUrl = document.getElementById("setup-public-url").value.trim();
+  const adminUsername = document.getElementById("setup-admin-username").value.trim();
+  const adminPin = document.getElementById("setup-admin-pin").value.trim();
+
+  submitBtn.disabled = true;
+  statusEl.textContent = "Setting up...";
+  try {
+    const resp = await fetch("/api/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataFolder, hivePort, publicBaseUrl, adminUsername, adminPin }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(body.error || "Setup failed");
+
+    statusEl.textContent = "Logging you in...";
+    const loginResp = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: adminUsername, pin: adminPin }),
+    });
+    const loginBody = await loginResp.json().catch(() => ({}));
+    if (!loginResp.ok) throw new Error(loginBody.error || "Setup finished, but auto-login failed - log in below.");
+
+    state.token = loginBody.token;
+    state.username = loginBody.username;
+    state.role = loginBody.role || "";
+    localStorage.setItem("panelToken", state.token);
+    localStorage.setItem("panelUsername", state.username);
+    localStorage.setItem("panelRole", state.role);
+    document.getElementById("setup").classList.add("hidden");
+    showApp();
+  } catch (err) {
+    statusEl.textContent = "";
+    errorEl.textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+async function bootstrap() {
+  try {
+    const resp = await fetch("/api/setup/status");
+    const body = await resp.json().catch(() => ({}));
+    if (body.needsSetup) {
+      document.getElementById("setup").classList.remove("hidden");
+      return;
+    }
+  } catch {
+    // if the check itself fails, fall through to the normal login flow
+  }
+  if (state.token) {
+    showApp();
+  } else {
+    document.getElementById("login").classList.remove("hidden");
+  }
+}
+
+bootstrap();
 setInterval(refreshStatus, 30000);
