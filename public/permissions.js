@@ -89,11 +89,22 @@ function setEditorChecks(allowed = {}) {
   });
 }
 
-function openPermissionEditor(filepath, current = null) {
+async function openPermissionEditor(filepath, current = null) {
   if (!isAdminUser()) return;
   const overlay = ensurePermissionEditor();
   overlay.dataset.path = filepath;
   overlay.querySelector("#permission-editor-path").textContent = filepath || "/ (Hive root)";
+  overlay.querySelector("#permission-editor-error").textContent = "";
+  overlay.classList.remove("hidden");
+  if (!current) {
+    try {
+      const result = await api(`/api/file-permissions/effective?path=${encodeURIComponent(filepath)}`);
+      current = result.permissions;
+    } catch (err) {
+      overlay.querySelector("#permission-editor-error").textContent = err.message;
+      return;
+    }
+  }
   const actions = overlay.querySelector("#permission-editor-actions");
   actions.innerHTML = "";
   FILE_PERMISSION_ACTIONS.forEach((action) => {
@@ -104,8 +115,6 @@ function openPermissionEditor(filepath, current = null) {
     label.append(input, document.createTextNode(FILE_PERMISSION_LABELS[action]));
     actions.appendChild(label);
   });
-  overlay.querySelector("#permission-editor-error").textContent = "";
-  overlay.classList.remove("hidden");
 }
 
 async function savePermissionEditor() {
@@ -130,10 +139,10 @@ function setPermissionPrompt(filepath) {
   openPermissionEditor(filepath);
 }
 
-function addPermissionButton(container, filepath) {
+function addPermissionButton(container, filepath, permissions) {
   if (!isAdminUser() || !container) return;
   const btn = Object.assign(document.createElement("button"), { className: "icon-btn", textContent: "🔐", title: "Customize user permissions" });
-  btn.addEventListener("click", (event) => { event.stopPropagation(); openPermissionEditor(filepath); });
+  btn.addEventListener("click", (event) => { event.stopPropagation(); openPermissionEditor(filepath, permissions); });
   container.appendChild(btn);
 }
 
@@ -144,7 +153,7 @@ renderRow = function renderRowWithPermissions(list, entry) {
   const li = list.lastElementChild;
   const actions = li?.querySelector(".row-actions");
   const full = state.subpath ? `${state.subpath}/${entry.name}` : entry.name;
-  addPermissionButton(actions, full);
+  addPermissionButton(actions, full, entry.permissions);
 };
 
 const baseLoadSystem = loadSystem;
