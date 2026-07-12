@@ -72,7 +72,9 @@ export async function filterEntriesForRole(entries, userRole, subpath = "") {
   if (normalizeRole(userRole) === "admin") {
     return Promise.all(entries.map(async (entry) => {
       const full = normalizeFilePath(subpath ? `${subpath}/${entry.name}` : entry.name);
-      return { ...entry, permissions: await permissionsForPath(userRole, full) };
+      // Admin can do everything, but the admin UI needs to display the
+      // effective USER permissions rather than the admin bypass values.
+      return { ...entry, permissions: await permissionsForPath("user", full) };
     }));
   }
 
