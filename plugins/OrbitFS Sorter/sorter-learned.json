@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "extensionFolders": {
+    ".md": {
+      "2. Wellbeing/Notes": 1
+    },
+    ".jpg": {
+      "_media/Photos": 1
+    }
+  },
+  "tokenFolders": {
+    "234524": {
+      "_media/Photos": 1
+    },
+    "20260712": {
+      "_media/Photos": 1
+    },
+    "pure": {
+      "2. Wellbeing/Notes": 1
+    },
+    "vent": {
+      "2. Wellbeing/Notes": 1
+    },
+    "mode": {
+      "2. Wellbeing/Notes": 1
+    },
+    "implementation": {
+      "2. Wellbeing/Notes": 1
+    },
+    "screenshot": {
+      "_media/Photos": 1
+    },
+    "chrome": {
+      "_media/Photos": 1
+    },
+    "jpg": {
+      "_media/Photos": 1
+    }
+  }
+}

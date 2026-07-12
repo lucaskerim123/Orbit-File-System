@@ -1,3 +1,5 @@
 {
-  "rules": []
+  "rules": [
+    { "path": "2. Wellbeing/Pure Vent Mode", "role": "admin" }
+  ]
 }
