@@ -1,10 +1,25 @@
 import fs from "fs/promises";
 
 const PERMISSIONS_PATH = process.env.FILE_PERMISSIONS_PATH || "./file-permissions.json";
-const ROLES = new Set(["admin", "user"]);
+export const FILE_ACTIONS = ["read", "write", "download", "move", "delete", "create"];
+const ALLOW_ALL = Object.freeze(Object.fromEntries(FILE_ACTIONS.map((action) => [action, true])));
+const DENY_ALL = Object.freeze(Object.fromEntries(FILE_ACTIONS.map((action) => [action, false])));
 
 function normalizeRole(role) {
   return role === "admin" ? "admin" : "user";
+}
+
+function normalizePermissions(input, fallback = ALLOW_ALL) {
+  return Object.fromEntries(FILE_ACTIONS.map((action) => [action, typeof input?.[action] === "boolean" ? input[action] : fallback[action]]));
+}
+
+function normalizeRule(rule) {
+  if (!rule || typeof rule !== "object") return null;
+  const path = normalizeFilePath(rule.path);
+  // Automatic migration from the old user/admin visibility-only format.
+  if (rule.role === "admin") return { path, permissions: { ...DENY_ALL } };
+  if (rule.role === "user") return { path, permissions: { ...ALLOW_ALL } };
+  return { path, permissions: normalizePermissions(rule.permissions) };
 }
 
 export function normalizeFilePath(input) {
@@ -17,7 +32,7 @@ export function normalizeFilePath(input) {
 async function loadPermissions() {
   try {
     const parsed = JSON.parse(await fs.readFile(PERMISSIONS_PATH, "utf-8"));
-    return Array.isArray(parsed?.rules) ? parsed.rules : [];
+    return Array.isArray(parsed?.rules) ? parsed.rules.map(normalizeRule).filter(Boolean) : [];
   } catch {
     return [];
   }
@@ -38,32 +53,34 @@ async function matchingRule(filepath) {
   const target = normalizeFilePath(filepath);
   const rules = await loadPermissions();
   return rules
-    .filter((r) => ROLES.has(r.role) && matchRule(r.path, target))
+    .filter((r) => matchRule(r.path, target))
     .sort((a, b) => normalizeFilePath(b.path).length - normalizeFilePath(a.path).length)[0] || null;
 }
 
-export async function requiredRoleForPath(filepath) {
-  return matchingRule(filepath).then((rule) => normalizeRole(rule?.role));
+export async function permissionsForPath(userRole, filepath) {
+  if (normalizeRole(userRole) === "admin") return { ...ALLOW_ALL };
+  const rule = await matchingRule(filepath);
+  return rule ? normalizePermissions(rule.permissions) : { ...ALLOW_ALL };
 }
 
-export async function canAccessPath(userRole, filepath) {
-  if (normalizeRole(userRole) === "admin") return true;
-  return (await requiredRoleForPath(filepath)) === "user";
+export async function canAccessPath(userRole, filepath, action = "read") {
+  if (!FILE_ACTIONS.includes(action)) throw new Error(`Unknown file permission action "${action}"`);
+  return (await permissionsForPath(userRole, filepath))[action];
 }
 
 export async function filterEntriesForRole(entries, userRole, subpath = "") {
   if (normalizeRole(userRole) === "admin") {
     return Promise.all(entries.map(async (entry) => {
       const full = normalizeFilePath(subpath ? `${subpath}/${entry.name}` : entry.name);
-      return { ...entry, permission: await requiredRoleForPath(full) };
+      return { ...entry, permissions: await permissionsForPath(userRole, full) };
     }));
   }
 
   const out = [];
   for (const entry of entries) {
     const full = normalizeFilePath(subpath ? `${subpath}/${entry.name}` : entry.name);
-    if (await canAccessPath(userRole, full)) {
-      out.push({ ...entry, permission: await requiredRoleForPath(full) });
+    if (await canAccessPath(userRole, full, "read")) {
+      out.push({ ...entry, permissions: await permissionsForPath(userRole, full) });
     }
   }
   return out;
@@ -72,28 +89,23 @@ export async function filterEntriesForRole(entries, userRole, subpath = "") {
 export async function listPermissions() {
   const rules = await loadPermissions();
   return rules
-    .filter((r) => ROLES.has(r.role))
-    .map((r) => ({ path: normalizeFilePath(r.path), role: normalizeRole(r.role) }))
+    .map((r) => ({ path: normalizeFilePath(r.path), permissions: normalizePermissions(r.permissions) }))
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export async function setPermission(filepath, role) {
+export async function setPermission(filepath, permissions) {
   const normalizedPath = normalizeFilePath(filepath);
-  const normalizedRole = normalizeRole(role);
   const rules = (await loadPermissions()).filter((r) => normalizeFilePath(r.path) !== normalizedPath);
-
-  // "user" is the default, so storing only admin overrides keeps this simple.
-  if (normalizedRole === "admin") {
-    rules.push({ path: normalizedPath, role: "admin" });
-  }
+  const normalizedPermissions = normalizePermissions(permissions);
+  rules.push({ path: normalizedPath, permissions: normalizedPermissions });
 
   await savePermissions(rules.sort((a, b) => normalizeFilePath(a.path).localeCompare(normalizeFilePath(b.path))));
-  return { path: normalizedPath, role: normalizedRole };
+  return { path: normalizedPath, permissions: normalizedPermissions };
 }
 
 export async function clearPermission(filepath) {
   const normalizedPath = normalizeFilePath(filepath);
   const rules = (await loadPermissions()).filter((r) => normalizeFilePath(r.path) !== normalizedPath);
   await savePermissions(rules);
-  return { path: normalizedPath, role: "user" };
+  return { path: normalizedPath, inherited: true };
 }
