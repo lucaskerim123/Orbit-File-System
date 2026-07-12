@@ -57,6 +57,14 @@ Short version:
 5. Create the first user with `node scripts/add-user.mjs <username> <pin>`.
 8. Start the panel with `npm start`.
 
+## Cloud deploy
+
+Render and Railway deployment material lives in `cloud-deploy/`:
+
+- `cloud-deploy/README.md`
+- `cloud-deploy/render.yaml.example`
+- `cloud-deploy/railway.json.example`
+
 ## Roles
 
 - `admin` - sees System, users, permissions, and trash controls
