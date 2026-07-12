@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: orbitfs
+    runtime: docker
+    dockerfilePath: ./orbitfs-panel/Dockerfile.cloud
+    plan: starter
+    disk:
+      name: orbitfs-data
+      mountPath: /data
+      sizeGB: 20
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ORBITFS_CLOUD
+        value: "1"
+      - key: PANEL_PORT
+        value: "4000"
+      - key: PORT
+        value: "3939"
+      - key: SORTER_PORT
+        value: "4055"
+      - key: HIVE_URL
+        value: http://127.0.0.1:3939
+      - key: SORTER_URL
+        value: http://127.0.0.1:4055
+      - key: HIVE_SERVER_DIR
+        value: /app/orbitfs-mcp
+      - key: HIVE_LOG_DIR
+        value: /app/orbitfs-mcp/logs
+      - key: SORTER_DIR
+        value: /app/orbitfs-panel/plugins/OrbitFS Sorter
+      - key: HIVE_ROOT
+        value: /data/hive
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: HIVE_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false

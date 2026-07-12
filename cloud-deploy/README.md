@@ -1,6 +1,7 @@
-# OrbitFS Cloud Deploy: Render and Railway
+# OrbitFS Cloud Deploy
 
-This document is for the current codebase as it exists today.
+This folder groups the cloud deployment material for the current OrbitFS
+layout.
 
 Use one container, one persistent volume, and three local Node processes:
 
@@ -11,6 +12,19 @@ Use one container, one persistent volume, and three local Node processes:
 Do not split these into separate hosted services unless you redesign storage.
 The panel proxies to the sorter over `localhost`, and the sorter and MCP server
 both expect direct access to the same Hive filesystem.
+
+## Included here
+
+- `README.md` - deployment guide for Render and Railway
+- `render.yaml.example` - example Render Blueprint
+- `railway.json.example` - example Railway config
+
+Operational files stay outside this folder:
+
+- `orbitfs-panel/Dockerfile.cloud`
+- `orbitfs-panel/scripts/start-cloud.sh`
+
+Those stay where the build and runtime expect them.
 
 ## What this supports
 
@@ -25,7 +39,7 @@ Vercel is the wrong fit for this code because the app expects a normal
 long-running Node process plus persistent mounted storage, not serverless
 functions and object/database storage.
 
-## Files added for cloud deploy
+## Files used for cloud deploy
 
 - `orbitfs-panel/Dockerfile.cloud`
 - `orbitfs-panel/scripts/start-cloud.sh`
