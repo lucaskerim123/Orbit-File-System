@@ -17,6 +17,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 const PORT = process.env.PANEL_PORT || 4000;
 const LOG_DIR = path.join(__dirname, "logs");
 const WORKSPACE_ROOT = path.dirname(__dirname);
+const CLOUD_MODE = ["1", "true", "yes"].includes(String(process.env.ORBITFS_CLOUD || "").toLowerCase());
 const PANEL_EVENT_LOG = path.join(LOG_DIR, "orbitfs-panel-events.jsonl");
 const PANEL_ERROR_LOG = path.join(LOG_DIR, "orbitfs-panel-errors.jsonl");
 const PANEL_SERVICE_NAME = process.env.PANEL_SERVICE_NAME || "OrbitFSPanel";
@@ -480,7 +481,69 @@ function runPs(args) {
   });
 }
 
+async function readDiskUsage(basePath) {
+  try {
+    const stats = await fs.statfs(basePath);
+    const blockSize = Number(stats.bsize || stats.frsize || 0);
+    const total = blockSize * Number(stats.blocks || 0);
+    const free = blockSize * Number(stats.bavail || stats.bfree || 0);
+    const used = Math.max(0, total - free);
+    const toGb = (bytes) => Number((bytes / (1024 ** 3)).toFixed(2));
+    return {
+      totalGB: toGb(total),
+      freeGB: toGb(free),
+      usedGB: toGb(used),
+    };
+  } catch {
+    return { totalGB: 0, freeGB: 0, usedGB: 0 };
+  }
+}
+
+async function buildCloudSystemStatus() {
+  const hiveOk = await hive.ping();
+  const sorterRunning = fsSync.existsSync(SORTER_DIR) && (await sorterOnline(sorterPort()));
+  const disk = await readDiskUsage(process.env.HIVE_ROOT || localHiveRoot || WORKSPACE_ROOT);
+  return {
+    panel: {
+      exists: true,
+      running: true,
+      status: "Cloud",
+      note: "Running inside managed hosting.",
+    },
+    hive: {
+      exists: true,
+      running: hiveOk,
+      reachable: hiveOk,
+      status: hiveOk ? "Running" : "Unreachable",
+      source: "http_ping",
+      url: hive.baseUrl,
+    },
+    tunnel: {
+      exists: false,
+      running: false,
+      status: "ManagedByHost",
+      note: "Public routing is handled by the hosting provider.",
+    },
+    sorter: {
+      exists: fsSync.existsSync(SORTER_DIR),
+      running: sorterRunning,
+      status: sorterRunning ? "Running" : "Stopped",
+      url: `http://127.0.0.1:${sorterPort()}`,
+    },
+    disk,
+    cloudMode: true,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 app.get("/api/system/status", async (req, res) => {
+  if (CLOUD_MODE) {
+    try {
+      return res.json(await buildCloudSystemStatus());
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
   try {
     const out = await runPs([
       "-File",
@@ -520,6 +583,9 @@ const GUARDED_HARDSTOP_CONFIRM_TEXT = "RUN HARDSTOP";
 const HARDSTOP_PASSWORD = process.env.PANEL_HARDSTOP_PASSWORD || "";
 
 app.post("/api/system/control", requireAdmin, express.json(), async (req, res) => {
+  if (CLOUD_MODE) {
+    return res.status(501).json({ error: "System service control is disabled in cloud mode." });
+  }
   const target = req.body?.target;
   const action = req.body?.action || "restart";
   if (!CONTROL_TARGETS.has(target)) return res.status(400).json({ error: "invalid target" });
@@ -595,6 +661,9 @@ app.post("/api/system/control", requireAdmin, express.json(), async (req, res) =
 });
 
 app.post("/api/system/hardstop", requireAdmin, express.json({ limit: "8kb" }), async (req, res) => {
+  if (CLOUD_MODE) {
+    return res.status(501).json({ error: "Hard stop is disabled in cloud mode." });
+  }
   const confirmText = typeof req.body?.confirmText === "string" ? req.body.confirmText.trim() : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";
 
