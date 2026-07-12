@@ -12,9 +12,54 @@
 $result = @{}
 $HiveServerScript = Join-Path $HiveDir "server.js"
 $HivePingUrl = if ($env:HIVE_URL) { "$($env:HIVE_URL.TrimEnd('/'))/api/ping" } else { "http://localhost:3939/api/ping" }
-$SorterPingUrl = if ($env:SORTER_URL) { "$($env:SORTER_URL.TrimEnd('/'))/api/status" } else { "http://localhost:4055/api/status" }
 $SorterApiKey = if ($env:HIVE_API_KEY) { $env:HIVE_API_KEY } else { "" }
 $SystemDriveName = if ($env:PANEL_SYSTEM_DRIVE) { $env:PANEL_SYSTEM_DRIVE } else { "C" }
+function Get-SorterDir {
+  $panelDir = Split-Path -Parent $PSScriptRoot
+  $default = Join-Path $panelDir "plugins\OrbitFS Sorter"
+  $candidates = @()
+  if ($env:SORTER_DIR) { $candidates += $env:SORTER_DIR }
+  $candidates += $default
+  foreach ($candidate in $candidates | Select-Object -Unique) {
+    if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate "server.js"))) {
+      return $candidate
+    }
+  }
+  return $default
+}
+
+$SorterDir = Get-SorterDir
+
+function Get-SorterPingUrl {
+  $portFile = Join-Path $SorterDir ".sorter-port"
+  if (Test-Path -LiteralPath $portFile) {
+    try {
+      $port = [int]((Get-Content -LiteralPath $portFile -Raw).Trim())
+      if ($port -gt 0) { return "http://localhost:$port/api/status" }
+    } catch {
+    }
+  }
+
+  try {
+    if ($env:SORTER_URL) {
+      $port = [int](([uri]$env:SORTER_URL).Port)
+      if ($port -gt 0) { return "http://localhost:$port/api/status" }
+    }
+  } catch {
+  }
+
+  try {
+    $configPath = Join-Path $SorterDir "config.json"
+    if (Test-Path -LiteralPath $configPath) {
+      $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+      $port = [int]$config.port
+      if ($port -gt 0) { return "http://localhost:$port/api/status" }
+    }
+  } catch {
+  }
+
+  return "http://localhost:4055/api/status"
+}
 
 $panelSvc = Get-Service -Name $PanelServiceName -ErrorAction SilentlyContinue
 $result.panel = @{ status = if ($panelSvc) { $panelSvc.Status.ToString() } else { "NotFound" } }
@@ -48,6 +93,7 @@ $result.tunnel = @{
 
 $sorterSvc = Get-Service -Name $SorterServiceName -ErrorAction SilentlyContinue
 try {
+  $SorterPingUrl = Get-SorterPingUrl
   $sorterHeaders = if ($SorterApiKey) { @{ Authorization = "Bearer $SorterApiKey" } } else { @{} }
   $resp = Invoke-WebRequest -Uri $SorterPingUrl -Method GET -Headers $sorterHeaders -TimeoutSec 3 -UseBasicParsing
   $result.sorter = @{

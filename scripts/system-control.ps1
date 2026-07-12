@@ -32,11 +32,23 @@ $PanelDir = Split-Path -Parent $PSScriptRoot
 $PanelServerScript = Join-Path $PanelDir "server.js"
 $PanelOutLog = Join-Path $PanelDir "service-out.log"
 $PanelErrLog = Join-Path $PanelDir "service-err.log"
-$SorterDir = if ($env:SORTER_DIR) { $env:SORTER_DIR } else { Join-Path $PanelDir "plugins\OrbitFS Sorter" }
+function Get-SorterDir {
+  $default = Join-Path $PanelDir "plugins\OrbitFS Sorter"
+  $candidates = @()
+  if ($env:SORTER_DIR) { $candidates += $env:SORTER_DIR }
+  $candidates += $default
+  foreach ($candidate in $candidates | Select-Object -Unique) {
+    if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate "server.js"))) {
+      return $candidate
+    }
+  }
+  return $default
+}
+
+$SorterDir = Get-SorterDir
 $SorterServerScript = Join-Path $SorterDir "server.js"
 $SorterOutLog = Join-Path $SorterDir "out.log"
 $SorterErrLog = Join-Path $SorterDir "err.log"
-$SorterPingUrl = if ($env:SORTER_URL) { "$($env:SORTER_URL.TrimEnd('/'))/api/status" } else { "http://localhost:4055/api/status" }
 $SorterApiKey = if ($env:HIVE_API_KEY) { $env:HIVE_API_KEY } else { "" }
 $CloudflaredExe = if ($env:CLOUDFLARED_EXE) { $env:CLOUDFLARED_EXE } else { Join-Path $CloudflaredDir "cloudflared.exe" }
 $CloudflaredConfig = if ($env:CLOUDFLARED_CONFIG) { $env:CLOUDFLARED_CONFIG } else { Join-Path $HOME ".cloudflared\config.yml" }
@@ -188,6 +200,41 @@ function Test-HiveHttp {
   }
 }
 
+function Get-SorterPort {
+  $portFile = Join-Path $SorterDir ".sorter-port"
+  if (Test-Path -LiteralPath $portFile) {
+    try {
+      $port = [int]((Get-Content -LiteralPath $portFile -Raw).Trim())
+      if ($port -gt 0) { return $port }
+    } catch {
+    }
+  }
+
+  try {
+    if ($env:SORTER_URL) {
+      $port = [int](([uri]$env:SORTER_URL).Port)
+      if ($port -gt 0) { return $port }
+    }
+  } catch {
+  }
+
+  try {
+    $configPath = Join-Path $SorterDir "config.json"
+    if (Test-Path -LiteralPath $configPath) {
+      $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+      $port = [int]$config.port
+      if ($port -gt 0) { return $port }
+    }
+  } catch {
+  }
+
+  return 4055
+}
+
+function Get-SorterPingUrl {
+  return "http://localhost:$(Get-SorterPort)/api/status"
+}
+
 function Get-HiveCommandPattern {
   return "*" + ($HiveServerScript -replace "\\", "\\") + "*"
 }
@@ -276,6 +323,7 @@ function Start-BackgroundCommand {
 
 function Test-SorterHttp {
   try {
+    $SorterPingUrl = Get-SorterPingUrl
     $headers = if ($SorterApiKey) { @{ Authorization = "Bearer $SorterApiKey" } } else { @{} }
     $resp = Invoke-WebRequest -Uri $SorterPingUrl -Method GET -Headers $headers -TimeoutSec 3 -UseBasicParsing
     return ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300)
