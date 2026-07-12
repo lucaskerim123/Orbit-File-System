@@ -9,7 +9,7 @@ import { Readable } from "stream";
 import { makeHiveClient } from "./hive-client.js";
 import { resolveLocalHiveRoot, makeLocalOps } from "./local-hive-ops.js";
 import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser, removeUser } from "./auth.js";
-import { canAccessPath, filterEntriesForRole, listPermissions, setPermission, clearPermission } from "./permissions.js";
+import { canAccessPath, permissionsForPath, filterEntriesForRole, listPermissions, setPermission, clearPermission, normalizeFilePath } from "./permissions.js";
 import { needsSetup, runSetup, tryStartHiveServer } from "./setup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -99,10 +99,14 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-async function requireFileAccess(req, res, filepath) {
-  if (await canAccessPath(req.role, filepath)) return true;
-  res.status(403).json({ error: "File access denied" });
+async function requireFileAccess(req, res, filepath, action = "read") {
+  if (await canAccessPath(req.role, filepath, action)) return true;
+  res.status(403).json({ error: `${action[0].toUpperCase()}${action.slice(1)} permission denied for ${normalizeFilePath(filepath) || "/"}` });
   return false;
+}
+
+function parentPath(filepath) {
+  return normalizeFilePath(filepath).split("/").slice(0, -1).join("/");
 }
 
 // --- Auth ------------------------------------------------------------------
@@ -313,11 +317,13 @@ app.use("/api/sorter", express.raw({ type: "*/*", limit: "2mb" }), async (req, r
 // Thin passthrough to the OrbitFS MCP node's own REST API (see orbitfs-mcp),
 // except upload/download which stream raw bytes rather than round-tripping
 // through JSON, so this handles any file type/size sanely.
-// File permissions are intentionally basic: default user access, with optional
-// admin-only path overrides stored by this panel.
+// Granular inherited file/folder permissions. Admin bypasses every file ACL;
+// users receive the most specific rule for read/write/download/move/delete/create.
 
 app.get("/api/files", async (req, res) => {
   try {
+    const subpath = req.query.subpath || "";
+    if (!(await requireFileAccess(req, res, subpath, "read"))) return;
     let entries;
     try {
       entries = await hive.listFiles(req.query.subpath);
@@ -325,7 +331,10 @@ app.get("/api/files", async (req, res) => {
       if (!localOps) throw hiveErr;
       entries = await localOps.listFiles(req.query.subpath);
     }
-    res.json({ entries: await filterEntriesForRole(entries, req.role, req.query.subpath || "") });
+    res.json({
+      entries: await filterEntriesForRole(entries, req.role, subpath),
+      folderPermissions: await permissionsForPath(req.role, subpath),
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -333,7 +342,7 @@ app.get("/api/files", async (req, res) => {
 
 app.get("/api/file", async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.query.path))) return;
+    if (!(await requireFileAccess(req, res, req.query.path, "read"))) return;
     let content;
     try {
       content = await hive.readFile(req.query.path);
@@ -341,7 +350,7 @@ app.get("/api/file", async (req, res) => {
       if (!localOps) throw hiveErr;
       content = await localOps.readFile(req.query.path);
     }
-    res.json({ content });
+    res.json({ content, permissions: await permissionsForPath(req.role, req.query.path) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -349,7 +358,7 @@ app.get("/api/file", async (req, res) => {
 
 app.put("/api/file", express.json({ limit: "25mb" }), async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.body.path))) return;
+    if (!(await requireFileAccess(req, res, req.body.path, "write"))) return;
     await hive.writeFile(req.body.path, req.body.content ?? "");
     res.json({ ok: true });
   } catch (err) {
@@ -359,7 +368,7 @@ app.put("/api/file", express.json({ limit: "25mb" }), async (req, res) => {
 
 app.delete("/api/file", async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.query.path))) return;
+    if (!(await requireFileAccess(req, res, req.query.path, "delete"))) return;
     await hive.deleteFile(req.query.path);
     res.json({ ok: true });
   } catch (err) {
@@ -369,8 +378,7 @@ app.delete("/api/file", async (req, res) => {
 
 app.post("/api/trash", express.json(), async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.body.path))) return;
-    if (!(await requireFileAccess(req, res, "_trash"))) return;
+    if (!(await requireFileAccess(req, res, req.body.path, "delete"))) return;
     res.json(await hive.moveToTrash(req.body.path));
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -379,7 +387,7 @@ app.post("/api/trash", express.json(), async (req, res) => {
 
 app.post("/api/trash/empty", requireAdmin, async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, "_trash"))) return;
+    if (!(await requireFileAccess(req, res, "_trash", "delete"))) return;
     res.json(await hive.emptyTrash());
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -404,8 +412,8 @@ app.post("/api/system/trash-config", requireAdmin, express.json(), async (req, r
 
 app.post("/api/move", express.json(), async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.body.from))) return;
-    if (!(await requireFileAccess(req, res, req.body.to))) return;
+    if (!(await requireFileAccess(req, res, req.body.from, "move"))) return;
+    if (!(await requireFileAccess(req, res, parentPath(req.body.to), "create"))) return;
     await hive.moveFile(req.body.from, req.body.to);
     res.json({ ok: true });
   } catch (err) {
@@ -415,7 +423,7 @@ app.post("/api/move", express.json(), async (req, res) => {
 
 app.post("/api/sort/preview", async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, "_sorter"))) return;
+    if (!(await requireFileAccess(req, res, "_sorter", "read"))) return;
     res.json(await hive.previewSort());
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -426,8 +434,8 @@ app.post("/api/sort/apply", express.json(), async (req, res) => {
   try {
     const moves = req.body?.moves || [];
     for (const m of moves) {
-      if (!(await requireFileAccess(req, res, `_sorter/${m.item}`))) return;
-      if (!(await requireFileAccess(req, res, `${m.destination}/${m.item}`))) return;
+      if (!(await requireFileAccess(req, res, `_sorter/${m.item}`, "move"))) return;
+      if (!(await requireFileAccess(req, res, m.destination, "create"))) return;
     }
     res.json(await hive.applySort(moves));
   } catch (err) {
@@ -437,7 +445,7 @@ app.post("/api/sort/apply", express.json(), async (req, res) => {
 
 app.post("/api/mkdir", express.json(), async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.body.path))) return;
+    if (!(await requireFileAccess(req, res, parentPath(req.body.path), "create"))) return;
     await hive.mkdir(req.body.path);
     res.json({ ok: true });
   } catch (err) {
@@ -445,9 +453,39 @@ app.post("/api/mkdir", express.json(), async (req, res) => {
   }
 });
 
+// View raw bytes in the panel under read permission without granting the
+// separate right to download/save the file.
+app.get("/api/preview", async (req, res) => {
+  try {
+    if (!(await requireFileAccess(req, res, req.query.path, "read"))) return;
+    const url = new URL("/api/download", hive.baseUrl);
+    url.searchParams.set("path", req.query.path);
+    let upstream;
+    try {
+      upstream = await fetch(url, { headers: hive.headers });
+    } catch {
+      upstream = null;
+    }
+    if (upstream && upstream.ok) {
+      res.set("Content-Type", upstream.headers.get("content-type") || "application/octet-stream");
+      res.set("Content-Disposition", "inline");
+      return Readable.fromWeb(upstream.body).pipe(res);
+    }
+    if (localOps) {
+      const { stream } = await localOps.downloadStream(req.query.path);
+      res.set("Content-Type", "application/octet-stream");
+      res.set("Content-Disposition", "inline");
+      return stream.pipe(res);
+    }
+    return res.status(upstream ? upstream.status : 502).json({ error: "preview failed" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/download", async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.query.path))) return;
+    if (!(await requireFileAccess(req, res, req.query.path, "download"))) return;
     const url = new URL("/api/download", hive.baseUrl);
     url.searchParams.set("path", req.query.path);
     let upstream;
@@ -480,7 +518,7 @@ app.get("/api/download", async (req, res) => {
 
 app.post("/api/upload", express.raw({ type: () => true, limit: "2gb" }), async (req, res) => {
   try {
-    if (!(await requireFileAccess(req, res, req.query.path))) return;
+    if (!(await requireFileAccess(req, res, parentPath(req.query.path), "create"))) return;
     const url = new URL("/api/upload", hive.baseUrl);
     url.searchParams.set("path", req.query.path);
     const upstream = await fetch(url, {
@@ -504,11 +542,11 @@ app.get("/api/file-permissions", requireAdmin, async (req, res) => {
 });
 
 app.post("/api/file-permissions", requireAdmin, express.json(), async (req, res) => {
-  const { path: filepath, role } = req.body || {};
+  const { path: filepath, permissions } = req.body || {};
   if (!filepath && filepath !== "") return res.status(400).json({ error: "path required" });
-  if (!["admin", "user"].includes(role)) return res.status(400).json({ error: "role must be admin or user" });
+  if (!permissions || typeof permissions !== "object") return res.status(400).json({ error: "permissions object required" });
   try {
-    res.json({ ok: true, permission: await setPermission(filepath, role) });
+    res.json({ ok: true, permission: await setPermission(filepath, permissions) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -861,6 +899,4 @@ app.listen(PORT, () => {
     cloudflaredDir: CLOUDFLARED_DIR,
   });
 });
-
-
 
