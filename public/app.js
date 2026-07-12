@@ -5,7 +5,12 @@ const state = {
   subpath: "",
   openFile: null,
   previewFile: null,
+  folderPermissions: null,
+  currentPermissions: null,
 };
+
+const ALL_FILE_PERMISSIONS = Object.freeze({ read: true, write: true, download: true, move: true, delete: true, create: true });
+function effectivePermissions(value) { return { ...ALL_FILE_PERMISSIONS, ...(value || {}) }; }
 
 const TEXT_EXTENSIONS = new Set([
   "md", "txt", "json", "js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "yml", "yaml", "html",
@@ -286,7 +291,10 @@ async function loadFiles() {
   const list = document.getElementById("file-list");
   list.innerHTML = "<li>Loading…</li>";
   try {
-    const { entries } = await api(`/api/files?subpath=${encodeURIComponent(state.subpath)}`);
+    const { entries, folderPermissions } = await api(`/api/files?subpath=${encodeURIComponent(state.subpath)}`);
+    state.folderPermissions = effectivePermissions(folderPermissions);
+    document.getElementById("new-folder-btn").classList.toggle("hidden", !state.folderPermissions.create);
+    document.getElementById("upload-btn").classList.toggle("hidden", !state.folderPermissions.create);
     list.innerHTML = "";
     if (state.subpath) {
       const up = document.createElement("li");
@@ -336,7 +344,8 @@ function renderRow(list, entry) {
   const actions = document.createElement("span");
   actions.className = "row-actions";
 
-  if (entry.type === "file") {
+  const permissions = effectivePermissions(entry.permissions);
+  if (entry.type === "file" && permissions.download) {
     const dl = document.createElement("button");
     dl.className = "icon-btn";
     dl.textContent = "⬇";
@@ -345,20 +354,24 @@ function renderRow(list, entry) {
     actions.appendChild(dl);
   }
 
-  const mv = document.createElement("button");
-  mv.className = "icon-btn";
-  mv.textContent = "↦";
-  mv.title = "Move / rename";
-  mv.addEventListener("click", (e) => { e.stopPropagation(); openMovePicker(full); });
-  actions.appendChild(mv);
+  if (permissions.move) {
+    const mv = document.createElement("button");
+    mv.className = "icon-btn";
+    mv.textContent = "↦";
+    mv.title = "Move / rename";
+    mv.addEventListener("click", (e) => { e.stopPropagation(); openMovePicker(full); });
+    actions.appendChild(mv);
+  }
   if (isProtectedRootFolderPath(full, entry.type)) actions.querySelector(".icon-btn")?.remove();
 
-  const del = document.createElement("button");
-  del.className = "icon-btn danger";
-  del.textContent = "🗑";
-  del.title = "Move to trash";
-  del.addEventListener("click", (e) => { e.stopPropagation(); trashPath(full); });
-  actions.appendChild(del);
+  if (permissions.delete) {
+    const del = document.createElement("button");
+    del.className = "icon-btn danger";
+    del.textContent = "🗑";
+    del.title = "Move to trash";
+    del.addEventListener("click", (e) => { e.stopPropagation(); trashPath(full); });
+    actions.appendChild(del);
+  }
   if (isProtectedRootFolderPath(full, entry.type)) actions.querySelector(".icon-btn.danger")?.remove();
 
   li.appendChild(actions);
@@ -439,15 +452,16 @@ document.getElementById("editor-font-inc").addEventListener("click", () => stepE
 async function openFile(filepath) {
   if (!confirmDiscardIfDirty()) return;
   try {
-    const { content } = await api(`/api/file?path=${encodeURIComponent(filepath)}`);
+    const { content, permissions } = await api(`/api/file?path=${encodeURIComponent(filepath)}`);
     closeAllPanels();
     state.openFile = filepath;
+    state.currentPermissions = effectivePermissions(permissions);
     state.editorMode = editorModeFor(filepath);
     state.editorViewing = "edit";
     document.getElementById("editor-path").textContent = filepath;
 
     const editor = ensureCodeMirror();
-    editor.setOption("readOnly", false);
+    editor.setOption("readOnly", !state.currentPermissions.write);
     editor.setValue(content);
     editor.setOption("mode", CM_MODES[extOf(filepath)] || null);
     editor.clearHistory();
@@ -459,6 +473,12 @@ async function openFile(filepath) {
     document.getElementById("editor").classList.remove("hidden");
     document.getElementById("files-layout").classList.add("editor-open");
     renderEditorView();
+    document.getElementById("editor-edit-btn").classList.toggle("hidden", !state.currentPermissions.write);
+    document.getElementById("save-file-btn").classList.toggle("hidden", !state.currentPermissions.write);
+    document.getElementById("editor-find-btn").classList.toggle("hidden", !state.currentPermissions.write);
+    document.getElementById("editor-download-btn").classList.toggle("hidden", !state.currentPermissions.download);
+    document.getElementById("move-file-btn").classList.toggle("hidden", !state.currentPermissions.move);
+    document.getElementById("delete-file-btn").classList.toggle("hidden", !state.currentPermissions.delete);
     setTimeout(() => editor.refresh(), 30);
   } catch (err) {
     alert(err.message);
@@ -490,7 +510,7 @@ function renderEditorView() {
 
   rendered.classList.add("hidden");
   if (cmWrapper) cmWrapper.classList.remove("hidden");
-  if (cm) cm.setOption("readOnly", state.editorViewing === "read");
+  if (cm) cm.setOption("readOnly", state.editorViewing === "read" || !effectivePermissions(state.currentPermissions).write);
 }
 
 function setEditorViewing(mode) {
@@ -574,6 +594,7 @@ async function openPreview(filepath, entry) {
   if (!confirmDiscardIfDirty()) return;
   closeAllPanels();
   state.previewFile = filepath;
+  state.currentPermissions = effectivePermissions(entry.permissions);
   document.getElementById("preview-path").textContent = filepath;
   document.getElementById("preview").classList.remove("hidden");
   document.getElementById("files-layout").classList.add("editor-open");
@@ -584,6 +605,9 @@ async function openPreview(filepath, entry) {
   mediaEl.innerHTML = "";
 
   const kind = mediaKindFor(entry.name);
+  document.getElementById("preview-download-btn").classList.toggle("hidden", !state.currentPermissions.download);
+  document.getElementById("preview-move-btn").classList.toggle("hidden", !state.currentPermissions.move);
+  document.getElementById("preview-delete-btn").classList.toggle("hidden", !state.currentPermissions.delete);
   if (!kind) {
     infoEl.textContent =
       entry.size != null ? `${formatBytes(entry.size)} — not previewable, use Download.` : "Not previewable.";
@@ -592,7 +616,7 @@ async function openPreview(filepath, entry) {
 
   infoEl.textContent = "Loading preview…";
   try {
-    const resp = await fetch(`/api/download?path=${encodeURIComponent(filepath)}`, {
+    const resp = await fetch(`/api/preview?path=${encodeURIComponent(filepath)}`, {
       headers: { Authorization: `Bearer ${state.token}` },
     });
     if (!resp.ok) throw new Error(`Preview failed: ${resp.status}`);
@@ -867,7 +891,7 @@ async function trashPath(filepath, onDone) {
   }
 }
 
-const movePicker = { source: "", folder: "", onDone: null, folders: [] };
+const movePicker = { source: "", folder: "", onDone: null, folders: [], canCreate: true };
 
 function movePickerDestination() {
   const name = document.getElementById("move-picker-name").value.trim();
@@ -918,11 +942,16 @@ async function loadMovePickerFolder(folder) {
   renderMovePickerBreadcrumbs();
   updateMovePickerDestination();
   try {
-    const { entries } = await api(`/api/files?subpath=${encodeURIComponent(folder)}`);
+    const { entries, folderPermissions } = await api(`/api/files?subpath=${encodeURIComponent(folder)}`);
+    movePicker.canCreate = effectivePermissions(folderPermissions).create;
+    document.getElementById("move-picker-confirm").disabled = !movePicker.canCreate;
+    if (!movePicker.canCreate) document.getElementById("move-picker-error").textContent = "You can browse this folder, but you cannot move items into it.";
     movePicker.folders = entries.filter((entry) => entry.type === "dir").sort((a, b) => a.name.localeCompare(b.name));
     renderMovePickerFolders();
   } catch (err) {
     movePicker.folders = [];
+    movePicker.canCreate = false;
+    document.getElementById("move-picker-confirm").disabled = true;
     document.getElementById("move-picker-error").textContent = err.message;
     renderMovePickerFolders();
   }
@@ -960,6 +989,7 @@ document.getElementById("move-picker-confirm").addEventListener("click", async (
   const destination = movePickerDestination();
   const error = document.getElementById("move-picker-error");
   if (!destination) return void (error.textContent = "Enter a file or folder name.");
+  if (!movePicker.canCreate) return void (error.textContent = "You cannot move items into this folder.");
   if (destination === movePicker.source) return closeMovePicker();
   const button = document.getElementById("move-picker-confirm");
   button.disabled = true;
