@@ -344,7 +344,9 @@ function renderRow(list, entry) {
   const actions = document.createElement("span");
   actions.className = "row-actions";
 
-  const permissions = effectivePermissions(entry.permissions);
+  // entry.permissions describes what a normal user may do so Admin can edit
+  // that rule. It must never hide Admin's own controls.
+  const permissions = state.role === "admin" ? { ...ALL_FILE_PERMISSIONS } : effectivePermissions(entry.permissions);
   if (entry.type === "file" && permissions.download) {
     const dl = document.createElement("button");
     dl.className = "icon-btn";
@@ -594,7 +596,7 @@ async function openPreview(filepath, entry) {
   if (!confirmDiscardIfDirty()) return;
   closeAllPanels();
   state.previewFile = filepath;
-  state.currentPermissions = effectivePermissions(entry.permissions);
+  state.currentPermissions = state.role === "admin" ? { ...ALL_FILE_PERMISSIONS } : effectivePermissions(entry.permissions);
   document.getElementById("preview-path").textContent = filepath;
   document.getElementById("preview").classList.remove("hidden");
   document.getElementById("files-layout").classList.add("editor-open");
