@@ -24,7 +24,7 @@ It is the operator UI for the shared Hive server and covers:
   disk usage, ChatGPT↔Claude connection flows), power controls for each
   service, and admin management (users, file permissions, trash, connected
   MCP clients)
-- OrbitFS Sorter — a separate optional addon (`orbitfs-sorter`) that
+- OrbitFS Sorter — a separate optional addon (`orbitfs-panel/plugins/OrbitFS Sorter`) that
   previews AI-free, rule-based destination suggestions for files dropped in
   `_sorter`, and only moves them once you approve and confirm. Opens from
   the Files tab's Sort button; has its own "← Back to OrbitFS" link

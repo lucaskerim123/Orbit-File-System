@@ -89,6 +89,11 @@ async function ensureHiveSkeleton(dataFolder) {
   }
 }
 
+async function ensureSorterSkeleton(sorterDir) {
+  await fs.mkdir(sorterDir, { recursive: true });
+  await fs.mkdir(path.join(sorterDir, "public"), { recursive: true });
+}
+
 // Fields expected in `input`:
 //   dataFolder (required, absolute path), hivePort, publicBaseUrl,
 //   adminUsername (required), adminPin (required, 4-10 digits)
@@ -127,6 +132,7 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
 
   try {
     await ensureHiveSkeleton(dataFolder);
+    await ensureSorterSkeleton(sorterDir);
   } catch (fsErr) {
     const err = new Error(`Couldn't create that folder (${fsErr.code || fsErr.message}). Check the drive letter exists and you have permission to write there.`);
     err.status = 400;
@@ -135,6 +141,9 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
 
   const hiveEnvPath = path.join(hiveServerDir, ".env");
   const hiveEnvExample = path.join(hiveServerDir, ".env.example");
+  const sorterDir = path.join(panelDir, "plugins", "OrbitFS Sorter");
+  const sorterEnvPath = path.join(sorterDir, ".env");
+  const sorterEnvExample = path.join(sorterDir, ".env.example");
   const existingApiKey = readEnvValue(hiveEnvPath, "HIVE_API_KEY");
   const existingSessionSecret = readEnvValue(hiveEnvPath, "SESSION_SECRET");
   const existingPublicBaseUrl = readEnvValue(hiveEnvPath, "PUBLIC_BASE_URL");
@@ -185,6 +194,12 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
     HIVE_API_KEY: hiveApiKey,
     HIVE_SERVER_DIR: hiveServerDir,
     HIVE_LOG_DIR: path.join(hiveServerDir, "logs"),
+    SORTER_DIR: sorterDir,
+  });
+
+  await upsertEnvFile(sorterEnvPath, sorterEnvExample, {
+    HIVE_API_KEY: hiveApiKey,
+    SORTER_HIVE_ROOT: dataFolder,
   });
 
   await upsertUser(adminUsername, adminPin, "admin");

@@ -263,7 +263,7 @@ if (Test-Path -LiteralPath $panelEnvPath) {
   if (-not (Test-Path -LiteralPath $examplePath)) { throw "$examplePath not found - can't generate .env from it." }
   $hivePort = Get-EnvValue -EnvPath $hiveEnvPath -Key "PORT"
   if (-not $hivePort) { $hivePort = "3939" }
-  $sorterDir = Join-Path $HiveServerDir "plugins\The Orbit Sorter"
+  $sorterDir = Join-Path $PanelDir "plugins\OrbitFS Sorter"
   $content = Get-Content -LiteralPath $examplePath -Raw
   if ($hiveApiKey) { $content = $content -replace "(?m)^HIVE_API_KEY=.*$", "HIVE_API_KEY=$hiveApiKey" }
   $content = $content -replace "(?m)^HIVE_URL=.*$", "HIVE_URL=http://localhost:$hivePort"
@@ -274,15 +274,31 @@ if (Test-Path -LiteralPath $panelEnvPath) {
   Write-Ok "generated .env, matched HIVE_API_KEY to the MCP server's, pointed paths at $CodeDir"
 }
 
+# --- 5b. .env for orbitfs-sorter -----------------------------------------------
+Write-Step "Setting up orbitfs-sorter\.env"
+$sorterDir = Join-Path $PanelDir "plugins\OrbitFS Sorter"
+$sorterEnvPath = Join-Path $sorterDir ".env"
+if ((Test-Path -LiteralPath (Join-Path $sorterDir "server.js")) -and -not (Test-Path -LiteralPath $sorterEnvPath)) {
+  $examplePath = Join-Path $sorterDir ".env.example"
+  if (-not (Test-Path -LiteralPath $examplePath)) { throw "$examplePath not found - can't generate sorter .env from it." }
+  $content = Get-Content -LiteralPath $examplePath -Raw
+  if ($hiveApiKey) { $content = $content -replace "(?m)^HIVE_API_KEY=.*$", "HIVE_API_KEY=$hiveApiKey" }
+  $content = $content -replace "(?m)^SORTER_HIVE_ROOT=.*$", "SORTER_HIVE_ROOT=$HiveDataRoot"
+  Set-Content -LiteralPath $sorterEnvPath -Value $content -Encoding UTF8
+  Write-Ok "generated sorter .env and pointed it at the Hive root"
+} elseif (Test-Path -LiteralPath $sorterEnvPath) {
+  Write-Skip "sorter .env already exists, leaving it as-is"
+}
+
 # --- 6. npm install -----------------------------------------------------------
 Write-Step "Installing dependencies (orbitfs-mcp)"
 Push-Location $HiveServerDir
 try { npm install } finally { Pop-Location }
 Write-Ok "orbitfs-mcp dependencies installed"
 
-$sorterDir = Join-Path $HiveServerDir "plugins\The Orbit Sorter"
+$sorterDir = Join-Path $PanelDir "plugins\OrbitFS Sorter"
 if (Test-Path -LiteralPath (Join-Path $sorterDir "package.json")) {
-  Write-Step "Installing dependencies (The Orbit Sorter)"
+  Write-Step "Installing dependencies (orbitfs-sorter)"
   Push-Location $sorterDir
   try { npm install } finally { Pop-Location }
   Write-Ok "sorter dependencies installed"

@@ -26,7 +26,7 @@ const HIVE_LOG_DIR = process.env.HIVE_LOG_DIR || path.join(HIVE_SERVER_DIR, "log
 const CLOUDFLARED_SERVICE_NAME = process.env.CLOUDFLARED_SERVICE_NAME || "OrbitFSTunnel";
 const CLOUDFLARED_DIR = process.env.CLOUDFLARED_DIR || "C:\\cloudflared";
 const SORTER_SERVICE_NAME = process.env.SORTER_SERVICE_NAME || "OrbitFSSorter";
-const SORTER_DIR = process.env.SORTER_DIR || "F:\\orbitfs-mcp\\hive-addon-sorter";
+const SORTER_DIR = process.env.SORTER_DIR || path.join(__dirname, "plugins", "OrbitFS Sorter");
 const SORTER_URL = process.env.SORTER_URL || "http://localhost:4055";
 const POWERSHELL_CANDIDATES = [
   process.env.PANEL_POWERSHELL_PATH,

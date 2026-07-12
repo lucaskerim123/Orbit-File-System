@@ -1,0 +1,9 @@
+{
+  "port": 4055,
+  "hiveRoot": "F:/OrbitFS Project/The Orbit FS",
+  "indexPath": "_system/Index/folder_index.json",
+  "sorterFolder": "_sorter",
+  "trashFolder": "_trash",
+  "safeModeDefault": true,
+  "dangerousModeDefault": false
+}

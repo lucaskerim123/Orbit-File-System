@@ -12,7 +12,7 @@
     2. Installs/updates all 4 services, every path derived from -CodeDir so
        nothing is hardcoded to a specific drive or username:
          OrbitFSMcpServer   - node server.js in <CodeDir>\orbitfs-mcp
-         OrbitFSSorter      - node server.js in <CodeDir>\orbitfs-mcp\plugins\The Orbit Sorter
+         OrbitFSSorter      - node server.js in <CodeDir>\orbitfs-panel\plugins\OrbitFS Sorter
          OrbitFSPanel       - node server.js in <CodeDir>\orbitfs-panel
          OrbitFSTunnel      - cloudflared, only if -TunnelName is given
     3. Installs the IIS URL Rewrite + ARR modules if missing, enables the
@@ -117,7 +117,7 @@ if (-not $CodeDir) {
   $CodeDir = Read-PathWithDefault "Where is OrbitFS installed (the folder holding orbitfs-mcp and orbitfs-panel)?" "F:\"
 }
 $HiveServerDir = Join-Path $CodeDir "orbitfs-mcp"
-$SorterDir = Join-Path $HiveServerDir "plugins\The Orbit Sorter"
+$SorterDir = Join-Path $PanelDir "plugins\OrbitFS Sorter"
 $PanelDir = Join-Path $CodeDir "orbitfs-panel"
 
 foreach ($check in @(

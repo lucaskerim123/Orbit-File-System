@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Media Files",
+    "classification": "Media",
+    "extensions": [".mp3", ".wav", ".m4a", ".mp4", ".mov", ".avi", ".jpg", ".jpeg", ".png", ".webp", ".gif"],
+    "preferredFolders": ["_media"],
+    "destinationHints": ["media", "audio", "video", "photos", "images"],
+    "fallbackHints": ["imports"]
+  },
+  {
+    "name": "Mental Health / Wellbeing",
+    "classification": "Wellbeing",
+    "containsAny": ["mental", "wellbeing", "session", "mood", "sleep", "vent", "therapy"],
+    "preferredFolders": ["2. Wellbeing"],
+    "destinationHints": ["wellbeing", "mental", "notes"],
+    "fallbackHints": ["imports", "notes"]
+  },
+  {
+    "name": "Legal / Court",
+    "classification": "Legal",
+    "containsAny": ["statement", "witness", "victim", "police", "court", "hearing", "avo", "charge", "order", "affidavit", "mention", "adjourn"],
+    "preferredFolders": ["1. Legal"],
+    "destinationHints": ["legal", "court", "documents", "reference"],
+    "fallbackHints": ["intake", "needs review"]
+  },
+  {
+    "name": "Core Notes / Documents",
+    "classification": "Core",
+    "extensions": [".md", ".txt", ".doc", ".docx", ".pdf"],
+    "preferredFolders": ["0. Core"],
+    "destinationHints": ["documents", "notes", "imports"],
+    "fallbackHints": ["needs review"]
+  }
+]
