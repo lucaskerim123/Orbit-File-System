@@ -467,6 +467,27 @@
     </section>
   </div>
 
+  <div id="move-picker-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="move-picker-title">
+    <div class="modal-box move-picker-box">
+      <h2 id="move-picker-title">Move item</h2>
+      <p id="move-picker-source" class="move-picker-source"></p>
+      <div id="move-picker-breadcrumbs" class="move-picker-breadcrumbs"></div>
+      <div class="move-picker-toolbar">
+        <button id="move-picker-up" type="button">← Up</button>
+        <input id="move-picker-filter" type="search" placeholder="Filter folders…" autocomplete="off" spellcheck="false" />
+      </div>
+      <ul id="move-picker-folders" class="move-picker-folders"></ul>
+      <label class="move-picker-name-label" for="move-picker-name">File or folder name</label>
+      <input id="move-picker-name" type="text" autocomplete="off" spellcheck="false" />
+      <p class="move-picker-destination">Destination: <strong id="move-picker-destination"></strong></p>
+      <p id="move-picker-error" class="error"></p>
+      <div class="modal-actions">
+        <button id="move-picker-cancel" type="button">Cancel</button>
+        <button id="move-picker-confirm" type="button" class="primary">Move here</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.7.2/mammoth.browser.min.js"></script>
