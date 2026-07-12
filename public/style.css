@@ -1008,3 +1008,20 @@ table.data-table tr:hover td { background: var(--bg); }
   .sorter-item-list { max-height: 38vh; }
   .sorter-folder-list { max-height: 30vh; }
 }
+
+
+/* --- Upload panel --- */
+.upload-panel{margin:.7rem 0 1rem;padding:.85rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);box-shadow:0 12px 28px rgba(0,0,0,.16)}
+.upload-panel-head,.upload-options,.upload-footer{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+.upload-panel-head p{margin:.2rem 0 0;font-size:.78rem}
+.upload-dropzone{width:100%;min-height:118px;margin:.8rem 0;border:2px dashed var(--border);border-radius:10px;background:var(--bg);color:var(--text);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem}
+.upload-dropzone.dragover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
+.upload-dropzone span:last-child{color:var(--muted);font-size:.8rem}.upload-drop-icon{font-size:1.45rem}
+.upload-options{font-size:.8rem}.upload-options label{display:flex;align-items:center;gap:.4rem}.upload-options input{width:auto}
+.upload-queue{list-style:none;margin:.75rem 0;padding:0;display:grid;gap:.45rem;max-height:300px;overflow:auto}
+.upload-item{border:1px solid var(--border);border-radius:9px;padding:.55rem .65rem;background:var(--bg)}
+.upload-item-row{display:flex;align-items:center;gap:.55rem}.upload-item-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem}.upload-item-size{color:var(--muted);font-size:.75rem;white-space:nowrap}
+.upload-remove{padding:.25rem .45rem}.upload-progress{height:5px;margin-top:.45rem;border-radius:99px;background:var(--border);overflow:hidden}.upload-progress>span{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}.upload-item.done .upload-progress>span{background:var(--ok)}.upload-item.failed .upload-progress>span{background:var(--danger)}
+.upload-item-status{margin-top:.3rem;font-size:.72rem;color:var(--muted)}.upload-item.failed .upload-item-status{color:var(--danger)}.upload-item.done .upload-item-status{color:var(--ok)}
+.upload-footer{margin-top:.75rem;padding-top:.7rem;border-top:1px solid var(--border)}
+@media(max-width:620px){.upload-panel{margin-inline:-.1rem}.upload-options,.upload-footer{align-items:stretch;flex-direction:column}.upload-options>*,.upload-footer>*{width:100%}.upload-dropzone{min-height:105px}}

@@ -123,6 +123,26 @@
         <button id="upload-btn">⬆ Upload</button>
         <input id="upload-input" type="file" multiple class="hidden" />
       </div>
+      <div id="upload-panel" class="upload-panel hidden" aria-live="polite">
+        <div class="upload-panel-head">
+          <div><strong>Upload files</strong><p id="upload-destination" class="muted-text"></p></div>
+          <button id="upload-close-btn" class="link-btn" type="button" aria-label="Close upload panel">✕</button>
+        </div>
+        <button id="upload-dropzone" class="upload-dropzone" type="button">
+          <span class="upload-drop-icon">⬆</span>
+          <strong>Drop files here</strong>
+          <span>or tap to choose files</span>
+        </button>
+        <div class="upload-options">
+          <label><input id="upload-overwrite" type="checkbox" /> Replace files with the same name</label>
+          <button id="upload-clear-btn" type="button">Clear queue</button>
+        </div>
+        <ul id="upload-queue" class="upload-queue"></ul>
+        <div class="upload-footer">
+          <span id="upload-summary" class="muted-text">No files selected</span>
+          <button id="upload-start-btn" class="primary" type="button" disabled>Upload</button>
+        </div>
+      </div>
       <div id="files-layout" class="files-layout">
         <ul id="file-list" class="file-list"></ul>
 
