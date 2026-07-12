@@ -89,8 +89,9 @@ script just created).
 If you want Claude/ChatGPT to connect via Cloudflare Access OAuth (instead
 of the simpler bearer-key fallback), also fill in `CF_AUTHORIZE_URL`,
 `CF_TOKEN_URL`, `CF_CLIENT_ID`, `CF_CLIENT_SECRET` from your Cloudflare
-Access application. If you don't know what that means yet, skip it - the
-bearer key works fine on its own.
+Access application - see step 8 below for exactly how to get those. If you
+don't know what that means yet, skip it - the bearer key works fine on
+its own.
 
 ## 4. Create your first panel login
 
@@ -142,7 +143,66 @@ and ChatGPT can reach `/mcp`. This setup uses a
    record at it, following Cloudflare's own tunnel setup docs.
 3. Set `PUBLIC_BASE_URL` in `<CodeDir>\orbitfs-mcp\.env` to that domain.
 
-## 8. (Optional) Run everything as Windows services
+At this point Claude/ChatGPT can already reach `/mcp` and authenticate with
+the plain `HIVE_API_KEY` bearer token - that's enough for most setups. Only
+continue to step 8 if you specifically want Claude/ChatGPT to log in via a
+Cloudflare Access "Login with..." screen instead of pasting a key.
+
+## 8. (Optional) Cloudflare Access (OIDC) instead of the bearer key
+
+Skip this whole section unless you want OAuth login through Cloudflare
+Access. It requires step 7 (a working tunnel + domain) to already be done,
+since Cloudflare needs a real `PUBLIC_BASE_URL` to redirect back to.
+
+What this actually is: this server implements its own tiny OAuth
+authorization server (`oauth.js`) that Claude/ChatGPT talk to, and that
+server in turn logs the user in via a Cloudflare Access application acting
+as a standard OIDC identity provider. So you're not protecting the domain
+with Access directly - you're creating an Access app whose *only* job is
+to hand back an OIDC token that `oauth.js` exchanges for its own token.
+
+1. In the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/),
+   go to **Access controls → Applications**, then **Create new application**.
+2. Choose application type **SaaS application**, then pick **OIDC** as the
+   authentication protocol (not "Self-hosted" - self-hosted apps protect a
+   whole domain with a Cloudflare login page, which isn't what's happening
+   here).
+3. Give it a name (e.g. "OrbitFS MCP") and set the **Redirect URL** to
+   exactly:
+   ```
+   https://your-tunnel-domain.example.com/oauth/cf-callback
+   ```
+   This must match `PUBLIC_BASE_URL` + `/oauth/cf-callback` exactly - that
+   path is hardcoded in `oauth.js` and Cloudflare will refuse the redirect
+   if it doesn't match.
+4. Enable **PKCE** if the dashboard offers the option (this server always
+   sends a PKCE challenge; Cloudflare supports it either way, but turning
+   it on is the safer default).
+5. Set up who's allowed to log in - add an Access policy scoping it to
+   your own email (or your org's), same as any other Access application.
+   This is the actual gate: only identities that pass this policy get a
+   Cloudflare login through to your MCP server.
+6. Save. Cloudflare now shows you the four values this server needs -
+   copy them into `<CodeDir>\orbitfs-mcp\.env`:
+   - **Client ID** → `CF_CLIENT_ID`
+   - **Client secret** → `CF_CLIENT_SECRET`
+   - **Authorization endpoint** → `CF_AUTHORIZE_URL`
+   - **Token endpoint** → `CF_TOKEN_URL`
+
+   (Cloudflare's OIDC config page also lists an "Issuer" and a "Certs/JWKS"
+   URL - this server doesn't use those, so there's nothing to do with them.)
+7. Restart the MCP server so it picks up the new `.env` values.
+8. In Claude/ChatGPT's connector settings, reconnect using OAuth instead of
+   the bearer key - you should land on a Cloudflare Access login screen
+   before being sent back to the client.
+
+If it doesn't work: the MCP server logs every step of this exchange to
+`logs/master-hive-events.jsonl` (`oauth.authorize.*`, `oauth.cf_callback.*`,
+`oauth.token.*`) - a `redirect_uri_mismatch` or `unknown_client` reason
+there usually means the redirect URL in the Cloudflare app doesn't exactly
+match `PUBLIC_BASE_URL/oauth/cf-callback`.
+
+## 9. (Optional) Run everything as Windows services
 
 Running `npm start` in a terminal window dies when you close the window or
 log out. For a real deployment, run everything as a service so it survives
@@ -168,7 +228,7 @@ The MCP server and sorter services install as **Manual** start - launch
 them from the panel's System tab rather than having them auto-start, so
 you control when the file store becomes writable.
 
-## 9. (Optional) The "hard stop" button
+## 10. (Optional) The "hard stop" button
 
 The panel's System tab has a guarded button that shuts down the entire
 machine (`Stop-Computer -Force`). It's off by default. To enable it:
@@ -210,4 +270,8 @@ refuse to run.
   actually reachable from the internet (tunnel/DNS working), and that
   you're using the right auth method (bearer key vs Cloudflare Access
   OAuth) on the client side.
+- **Cloudflare Access OAuth redirects to an error / "Unknown client or
+  redirect_uri"** - the Redirect URL on the Cloudflare Access application
+  doesn't exactly match `PUBLIC_BASE_URL/oauth/cf-callback` (http vs https,
+  trailing slash, or wrong domain are the usual culprits). See step 8.
 
