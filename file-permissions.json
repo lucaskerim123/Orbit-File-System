@@ -1,6 +1,105 @@
 {
   "rules": [
     {
+      "path": "_media",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "_sorter",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "_system",
+      "permissions": {
+        "read": false,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "_trash",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "0. Core",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "0. Core/Master Logs/Master_Incident_Log_v1.docx",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "0. Core/Master Logs/Master_Incident_Log_v2.docx",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "1. Legal",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
+      "path": "2. Wellbeing",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "download": false,
+        "move": false,
+        "delete": false,
+        "create": false
+      }
+    },
+    {
       "path": "2. Wellbeing/Pure Vent Mode",
       "permissions": {
         "read": false,
