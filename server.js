@@ -20,12 +20,12 @@ const PANEL_EVENT_LOG = path.join(LOG_DIR, "orbitfs-panel-events.jsonl");
 const PANEL_ERROR_LOG = path.join(LOG_DIR, "orbitfs-panel-errors.jsonl");
 const PANEL_SERVICE_NAME = process.env.PANEL_SERVICE_NAME || "OrbitFSPanel";
 const HIVE_SERVICE_NAME = process.env.HIVE_SERVICE_NAME || "OrbitFSMcpServer";
-const HIVE_SERVER_DIR = process.env.HIVE_SERVER_DIR || "C:\\mcp-hive-server";
+const HIVE_SERVER_DIR = process.env.HIVE_SERVER_DIR || "F:\\orbitfs-mcp";
 const HIVE_LOG_DIR = process.env.HIVE_LOG_DIR || path.join(HIVE_SERVER_DIR, "logs");
 const CLOUDFLARED_SERVICE_NAME = process.env.CLOUDFLARED_SERVICE_NAME || "OrbitFSTunnel";
 const CLOUDFLARED_DIR = process.env.CLOUDFLARED_DIR || "C:\\cloudflared";
 const SORTER_SERVICE_NAME = process.env.SORTER_SERVICE_NAME || "OrbitFSSorter";
-const SORTER_DIR = process.env.SORTER_DIR || "F:\\mcp-hive-server\\hive-addon-sorter";
+const SORTER_DIR = process.env.SORTER_DIR || "F:\\orbitfs-mcp\\hive-addon-sorter";
 const SORTER_URL = process.env.SORTER_URL || "http://localhost:4055";
 const POWERSHELL_CANDIDATES = [
   process.env.PANEL_POWERSHELL_PATH,
