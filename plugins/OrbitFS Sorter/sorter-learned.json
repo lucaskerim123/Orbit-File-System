@@ -6,6 +6,10 @@
     },
     ".jpg": {
       "_media/Photos": 1
+    },
+    ".pdf": {
+      "2. Wellbeing/Letters - Documents": 1,
+      "2. Wellbeing/Sessions": 1
     }
   },
   "tokenFolders": {
@@ -35,6 +39,31 @@
     },
     "jpg": {
       "_media/Photos": 1
+    },
+    "poppy": {
+      "2. Wellbeing/Letters - Documents": 1
+    },
+    "reg": {
+      "2. Wellbeing/Letters - Documents": 1
+    },
+    "read": {
+      "2. Wellbeing/Letters - Documents": 1
+    },
+    "cues": {
+      "2. Wellbeing/Letters - Documents": 1
+    },
+    "pdf": {
+      "2. Wellbeing/Letters - Documents": 1,
+      "2. Wellbeing/Sessions": 1
+    },
+    "session": {
+      "2. Wellbeing/Sessions": 1
+    },
+    "full": {
+      "2. Wellbeing/Sessions": 1
+    },
+    "report": {
+      "2. Wellbeing/Sessions": 1
     }
   }
 }
