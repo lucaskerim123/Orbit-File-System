@@ -130,6 +130,8 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
     throw err;
   }
 
+  const sorterDir = path.join(panelDir, "plugins", "OrbitFS Sorter");
+
   try {
     await ensureHiveSkeleton(dataFolder);
     await ensureSorterSkeleton(sorterDir);
@@ -141,7 +143,6 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
 
   const hiveEnvPath = path.join(hiveServerDir, ".env");
   const hiveEnvExample = path.join(hiveServerDir, ".env.example");
-  const sorterDir = path.join(panelDir, "plugins", "OrbitFS Sorter");
   const sorterEnvPath = path.join(sorterDir, ".env");
   const sorterEnvExample = path.join(sorterDir, ".env.example");
   const existingApiKey = readEnvValue(hiveEnvPath, "HIVE_API_KEY");

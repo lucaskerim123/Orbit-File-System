@@ -36,6 +36,8 @@ $SorterDir = if ($env:SORTER_DIR) { $env:SORTER_DIR } else { Join-Path $PanelDir
 $SorterServerScript = Join-Path $SorterDir "server.js"
 $SorterOutLog = Join-Path $SorterDir "out.log"
 $SorterErrLog = Join-Path $SorterDir "err.log"
+$SorterPingUrl = if ($env:SORTER_URL) { "$($env:SORTER_URL.TrimEnd('/'))/api/status" } else { "http://localhost:4055/api/status" }
+$SorterApiKey = if ($env:HIVE_API_KEY) { $env:HIVE_API_KEY } else { "" }
 $CloudflaredExe = if ($env:CLOUDFLARED_EXE) { $env:CLOUDFLARED_EXE } else { Join-Path $CloudflaredDir "cloudflared.exe" }
 $CloudflaredConfig = if ($env:CLOUDFLARED_CONFIG) { $env:CLOUDFLARED_CONFIG } else { Join-Path $HOME ".cloudflared\config.yml" }
 $CloudflaredTunnelName = if ($env:CLOUDFLARED_TUNNEL_NAME) { $env:CLOUDFLARED_TUNNEL_NAME } else { "master-hive" }
@@ -99,9 +101,13 @@ function Stop-ManagedService {
     return $false
   }
 
-  Stop-Service -Name $Name -Force -ErrorAction Stop
-  Wait-ForServiceStatus -Name $Name -DesiredStatus "Stopped"
-  return $true
+  try {
+    Stop-Service -Name $Name -Force -ErrorAction Stop
+    Wait-ForServiceStatus -Name $Name -DesiredStatus "Stopped"
+    return $true
+  } catch {
+    return $false
+  }
 }
 
 function Start-ManagedService {
@@ -114,9 +120,13 @@ function Start-ManagedService {
     return $false
   }
 
-  Start-Service -Name $Name -ErrorAction Stop
-  Wait-ForServiceStatus -Name $Name -DesiredStatus "Running"
-  return $true
+  try {
+    Start-Service -Name $Name -ErrorAction Stop
+    Wait-ForServiceStatus -Name $Name -DesiredStatus "Running"
+    return $true
+  } catch {
+    return $false
+  }
 }
 
 function Restart-ManagedService {
@@ -129,9 +139,13 @@ function Restart-ManagedService {
     return $false
   }
 
-  Restart-Service -Name $Name -Force -ErrorAction Stop
-  Wait-ForServiceStatus -Name $Name -DesiredStatus "Running"
-  return $true
+  try {
+    Restart-Service -Name $Name -Force -ErrorAction Stop
+    Wait-ForServiceStatus -Name $Name -DesiredStatus "Running"
+    return $true
+  } catch {
+    return $false
+  }
 }
 
 function Get-HiveProcesses {
@@ -260,13 +274,22 @@ function Start-BackgroundCommand {
   $proc
 }
 
+function Test-SorterHttp {
+  try {
+    $headers = if ($SorterApiKey) { @{ Authorization = "Bearer $SorterApiKey" } } else { @{} }
+    $resp = Invoke-WebRequest -Uri $SorterPingUrl -Method GET -Headers $headers -TimeoutSec 3 -UseBasicParsing
+    return ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 300)
+  } catch {
+    return $false
+  }
+}
+
 function Stop-HiveProcess {
   if (Stop-ManagedService -Name $HiveServiceName) {
     for ($i = 0; $i -lt 12; $i++) {
       if (-not (Test-HiveHttp)) { return }
       Start-Sleep -Seconds 1
     }
-    throw "Hive service '$HiveServiceName' stop requested but $HivePingUrl is still responding."
   }
 
   $stoppedAny = $false
@@ -292,8 +315,22 @@ function Stop-HiveProcess {
     Start-Sleep -Seconds 1
   }
 
+  if (Test-HiveHttp) {
+    foreach ($proc in @(Get-HiveProcesses)) {
+      & 'C:\Windows\System32\taskkill.exe' /PID $proc.ProcessId /T /F | Out-Null
+      $stoppedAny = $true
+    }
+  }
+
+  for ($i = 0; $i -lt 8; $i++) {
+    if (-not (Test-HiveHttp)) {
+      return
+    }
+    Start-Sleep -Seconds 1
+  }
+
   if ($stoppedAny -or (Test-HiveHttp)) {
-    throw "Hive server stop requested but $HivePingUrl is still responding."
+    throw "Hive server force-stop requested but $HivePingUrl is still responding."
   }
 }
 
@@ -349,7 +386,10 @@ function Start-HiveProcess {
 
 function Stop-TunnelProcess {
   if (Stop-ManagedService -Name $CloudflaredServiceName) {
-    return
+    $running = Get-Process cloudflared -ErrorAction SilentlyContinue
+    if (-not $running) {
+      return
+    }
   }
   Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
 }
@@ -371,7 +411,7 @@ function Start-TunnelProcess {
 
 function Stop-PanelProcess {
   if (Stop-ManagedService -Name $PanelServiceName) {
-    return
+    Start-Sleep -Seconds 2
   }
 
   Stop-NodeProcessesByScriptPath -ScriptPath $PanelServerScript -Label "Panel"
@@ -396,15 +436,34 @@ function Start-PanelProcess {
 
 function Stop-SorterProcess {
   if (Stop-ManagedService -Name $SorterServiceName) {
-    return
+    for ($i = 0; $i -lt 8; $i++) {
+      if (-not (Test-SorterHttp)) {
+        return
+      }
+      Start-Sleep -Seconds 1
+    }
   }
 
   Stop-NodeProcessesByScriptPath -ScriptPath $SorterServerScript -Label "Sorter"
+
+  for ($i = 0; $i -lt 8; $i++) {
+    if (-not (Test-SorterHttp)) {
+      return
+    }
+    Start-Sleep -Seconds 1
+  }
+
+  throw "Sorter stop requested but $SorterPingUrl is still responding."
 }
 
 function Start-SorterProcess {
   if (Start-ManagedService -Name $SorterServiceName) {
-    return
+    for ($i = 0; $i -lt 12; $i++) {
+      Start-Sleep -Seconds 1
+      if (Test-SorterHttp) {
+        return
+      }
+    }
   }
 
   if (-not (Test-Path -LiteralPath $SorterServerScript)) {
@@ -417,6 +476,20 @@ function Start-SorterProcess {
     -WorkingDirectory $SorterDir `
     -StdoutPath $SorterOutLog `
     -StderrPath $SorterErrLog
+
+  for ($i = 0; $i -lt 12; $i++) {
+    Start-Sleep -Seconds 1
+    if (Test-SorterHttp) {
+      return
+    }
+  }
+
+  $stderr = if (Test-Path -LiteralPath $SorterErrLog) { (Get-Content $SorterErrLog -Tail 40 -ErrorAction SilentlyContinue) -join "`n" } else { "" }
+  $stdout = if (Test-Path -LiteralPath $SorterOutLog) { (Get-Content $SorterOutLog -Tail 20 -ErrorAction SilentlyContinue) -join "`n" } else { "" }
+  $message = "Sorter process started but /api/status did not come up at $SorterPingUrl."
+  if ($stderr) { $message += " stderr: $stderr" }
+  elseif ($stdout) { $message += " stdout: $stdout" }
+  throw $message
 }
 
 # panel stop/restart are called detached from server.js after it has already

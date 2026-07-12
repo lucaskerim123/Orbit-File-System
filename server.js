@@ -472,7 +472,7 @@ function runPs(args) {
     execFile(
       POWERSHELL_CMD,
       ["-NoProfile", "-ExecutionPolicy", "Bypass", ...args],
-      { timeout: 15000, maxBuffer: 4 * 1024 * 1024 },
+      { timeout: 30000, maxBuffer: 4 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) return reject(new Error(stderr || err.message));
         resolve(stdout.trim());
