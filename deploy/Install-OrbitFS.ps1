@@ -263,13 +263,13 @@ if (Test-Path -LiteralPath $panelEnvPath) {
   if (-not (Test-Path -LiteralPath $examplePath)) { throw "$examplePath not found - can't generate .env from it." }
   $hivePort = Get-EnvValue -EnvPath $hiveEnvPath -Key "PORT"
   if (-not $hivePort) { $hivePort = "3939" }
-  $sorterDir = Join-Path $HiveServerDir "hive-addon-sorter"
+  $sorterDir = Join-Path $HiveServerDir "plugins\The Orbit Sorter"
   $content = Get-Content -LiteralPath $examplePath -Raw
   if ($hiveApiKey) { $content = $content -replace "(?m)^HIVE_API_KEY=.*$", "HIVE_API_KEY=$hiveApiKey" }
   $content = $content -replace "(?m)^HIVE_URL=.*$", "HIVE_URL=http://localhost:$hivePort"
   $content = $content -replace "(?m)^HIVE_SERVER_DIR=.*$", "HIVE_SERVER_DIR=$HiveServerDir"
   $content = $content -replace "(?m)^HIVE_LOG_DIR=.*$", "HIVE_LOG_DIR=$(Join-Path $HiveServerDir 'logs')"
-  $content = $content -replace "(?m)^#\s*SORTER_DIR=.*$", "SORTER_DIR=$sorterDir"
+  $content = $content -replace "(?m)^SORTER_DIR=.*$", "SORTER_DIR=$sorterDir"
   Set-Content -LiteralPath $panelEnvPath -Value $content -Encoding UTF8
   Write-Ok "generated .env, matched HIVE_API_KEY to the MCP server's, pointed paths at $CodeDir"
 }
@@ -280,9 +280,9 @@ Push-Location $HiveServerDir
 try { npm install } finally { Pop-Location }
 Write-Ok "orbitfs-mcp dependencies installed"
 
-$sorterDir = Join-Path $HiveServerDir "hive-addon-sorter"
+$sorterDir = Join-Path $HiveServerDir "plugins\The Orbit Sorter"
 if (Test-Path -LiteralPath (Join-Path $sorterDir "package.json")) {
-  Write-Step "Installing dependencies (hive-addon-sorter)"
+  Write-Step "Installing dependencies (The Orbit Sorter)"
   Push-Location $sorterDir
   try { npm install } finally { Pop-Location }
   Write-Ok "sorter dependencies installed"

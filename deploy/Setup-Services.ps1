@@ -12,7 +12,7 @@
     2. Installs/updates all 4 services, every path derived from -CodeDir so
        nothing is hardcoded to a specific drive or username:
          OrbitFSMcpServer   - node server.js in <CodeDir>\orbitfs-mcp
-         OrbitFSSorter      - node server.js in <CodeDir>\orbitfs-mcp\hive-addon-sorter
+         OrbitFSSorter      - node server.js in <CodeDir>\orbitfs-mcp\plugins\The Orbit Sorter
          OrbitFSPanel       - node server.js in <CodeDir>\orbitfs-panel
          OrbitFSTunnel      - cloudflared, only if -TunnelName is given
     3. Installs the IIS URL Rewrite + ARR modules if missing, enables the
@@ -117,7 +117,7 @@ if (-not $CodeDir) {
   $CodeDir = Read-PathWithDefault "Where is OrbitFS installed (the folder holding orbitfs-mcp and orbitfs-panel)?" "F:\"
 }
 $HiveServerDir = Join-Path $CodeDir "orbitfs-mcp"
-$SorterDir = Join-Path $HiveServerDir "hive-addon-sorter"
+$SorterDir = Join-Path $HiveServerDir "plugins\The Orbit Sorter"
 $PanelDir = Join-Path $CodeDir "orbitfs-panel"
 
 foreach ($check in @(
@@ -176,7 +176,7 @@ if (Test-Path -LiteralPath (Join-Path $SorterDir "server.js")) {
   Install-OrUpdateService -Name "OrbitFSSorter" -Exe $nodeExe -Args "server.js" -WorkDir $SorterDir -StartType "SERVICE_DEMAND_START" -NssmExe $nssmExe
   Write-Ok "OrbitFSSorter configured (Manual start - launch it from the panel's System tab)"
 } else {
-  Write-Warn2 "hive-addon-sorter not found under $HiveServerDir, skipping OrbitFSSorter"
+  Write-Warn2 "sorter not found at $SorterDir, skipping OrbitFSSorter"
 }
 
 # --- 4. Panel service ------------------------------------------------------------

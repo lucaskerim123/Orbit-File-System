@@ -7,6 +7,7 @@ import fsSync from "fs";
 import { execFile, spawn } from "child_process";
 import { Readable } from "stream";
 import { makeHiveClient } from "./hive-client.js";
+import { resolveLocalHiveRoot, makeLocalOps } from "./local-hive-ops.js";
 import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser, removeUser } from "./auth.js";
 import { canAccessPath, filterEntriesForRole, listPermissions, setPermission, clearPermission } from "./permissions.js";
 import { needsSetup, runSetup, tryStartHiveServer } from "./setup.js";
@@ -37,6 +38,11 @@ const POWERSHELL_CANDIDATES = [
 ].filter(Boolean);
 
 let hive = makeHiveClient(process.env.HIVE_URL, process.env.HIVE_API_KEY);
+
+// Read-only disk fallback for browsing/viewing/downloading when the MCP
+// server is down - see local-hive-ops.js for why writes aren't covered here.
+const localHiveRoot = resolveLocalHiveRoot(HIVE_SERVER_DIR);
+const localOps = localHiveRoot ? makeLocalOps(localHiveRoot) : null;
 
 const app = express();
 app.set("etag", false);
@@ -179,7 +185,12 @@ app.use("/api", (req, res, next) => {
 });
 
 app.get("/api/status", async (req, res) => {
-  res.json({ hive: { ok: await hive.ping(), url: hive.baseUrl }, checkedAt: new Date().toISOString() });
+  const hiveOk = await hive.ping();
+  res.json({
+    hive: { ok: hiveOk, url: hive.baseUrl },
+    localFallback: { available: !!localOps, active: !hiveOk && !!localOps },
+    checkedAt: new Date().toISOString(),
+  });
 });
 
 // --- Sorter integration ----------------------------------------------------
@@ -246,7 +257,13 @@ app.use("/api/sorter", express.raw({ type: "*/*", limit: "2mb" }), async (req, r
 
 app.get("/api/files", async (req, res) => {
   try {
-    const entries = await hive.listFiles(req.query.subpath);
+    let entries;
+    try {
+      entries = await hive.listFiles(req.query.subpath);
+    } catch (hiveErr) {
+      if (!localOps) throw hiveErr;
+      entries = await localOps.listFiles(req.query.subpath);
+    }
     res.json({ entries: await filterEntriesForRole(entries, req.role, req.query.subpath || "") });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -256,7 +273,14 @@ app.get("/api/files", async (req, res) => {
 app.get("/api/file", async (req, res) => {
   try {
     if (!(await requireFileAccess(req, res, req.query.path))) return;
-    res.json({ content: await hive.readFile(req.query.path) });
+    let content;
+    try {
+      content = await hive.readFile(req.query.path);
+    } catch (hiveErr) {
+      if (!localOps) throw hiveErr;
+      content = await localOps.readFile(req.query.path);
+    }
+    res.json({ content });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -365,12 +389,29 @@ app.get("/api/download", async (req, res) => {
     if (!(await requireFileAccess(req, res, req.query.path))) return;
     const url = new URL("/api/download", hive.baseUrl);
     url.searchParams.set("path", req.query.path);
-    const upstream = await fetch(url, { headers: hive.headers });
-    if (!upstream.ok) return res.status(upstream.status).json({ error: "download failed" });
-    res.set("Content-Type", upstream.headers.get("content-type") || "application/octet-stream");
-    const cd = upstream.headers.get("content-disposition");
-    if (cd) res.set("Content-Disposition", cd);
-    Readable.fromWeb(upstream.body).pipe(res);
+    let upstream;
+    try {
+      upstream = await fetch(url, { headers: hive.headers });
+    } catch {
+      upstream = null; // MCP unreachable - fall through to the local disk read below
+    }
+    if (upstream && upstream.ok) {
+      res.set("Content-Type", upstream.headers.get("content-type") || "application/octet-stream");
+      const cd = upstream.headers.get("content-disposition");
+      if (cd) res.set("Content-Disposition", cd);
+      return Readable.fromWeb(upstream.body).pipe(res);
+    }
+    if (localOps) {
+      try {
+        const { stream, filename } = await localOps.downloadStream(req.query.path);
+        res.set("Content-Type", "application/octet-stream");
+        res.set("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+        return stream.pipe(res);
+      } catch (localErr) {
+        return res.status(400).json({ error: localErr.message });
+      }
+    }
+    return res.status(upstream ? upstream.status : 502).json({ error: "download failed" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
