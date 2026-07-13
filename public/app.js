@@ -8,6 +8,7 @@ const state = {
   folderPermissions: null,
   currentPermissions: null,
   fileLoadVersion: 0,
+  selectedFiles: new Map(),
 };
 
 const ALL_FILE_PERMISSIONS = Object.freeze({ read: true, write: true, download: true, move: true, delete: true, create: true });
@@ -324,6 +325,16 @@ function renderRow(list, entry) {
   const full = state.subpath ? `${state.subpath}/${entry.name}` : entry.name;
   const li = document.createElement("li");
   li.className = entry.type;
+  const select = document.createElement("input");
+  select.type = "checkbox";
+  select.className = "file-select";
+  select.checked = state.selectedFiles.has(full);
+  select.addEventListener("change",()=>{
+    if(select.checked) state.selectedFiles.set(full,{path:full,type:entry.type,size:Number(entry.size||0)});
+    else state.selectedFiles.delete(full);
+    renderBulkFileToolbar();
+  });
+  li.appendChild(select);
 
   const nameSpan = document.createElement("span");
   nameSpan.className = "row-name";
@@ -1807,3 +1818,57 @@ setInterval(() => {
   workspaceScript.defer = true;
   document.body.appendChild(workspaceScript);
 }
+
+function renderBulkFileToolbar() {
+  const toolbar = document.getElementById("bulk-file-toolbar");
+  if (!toolbar) return;
+  const items = [...state.selectedFiles.values()];
+  toolbar.classList.toggle("hidden", !items.length);
+  document.getElementById("bulk-file-count").textContent = `${items.length} selected`;
+  const downloads = items.filter(item=>item.type === "file");
+  const downloadBtn = document.getElementById("bulk-download-btn");
+  downloadBtn.disabled = !downloads.length || downloads.length !== items.length || downloads.length > 3;
+  downloadBtn.title = items.some(item=>item.type !== "file") ? "Folders cannot be bulk downloaded" : "Maximum 3 files and 250 MB";
+}
+
+function clearBulkFileSelection() {
+  state.selectedFiles.clear();
+  document.querySelectorAll(".file-select").forEach(input=>input.checked=false);
+  renderBulkFileToolbar();
+}
+
+async function bulkMoveSelected() {
+  const items = [...state.selectedFiles.values()];
+  if (!items.length) return;
+  const destination = prompt("Move selected items into folder path:", state.subpath || "");
+  if (destination == null) return;
+  try {
+    await api("/api/bulk-move", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ paths:items.map(item=>item.path), destination:destination.trim() }) });
+    clearBulkFileSelection();
+    await loadFiles();
+  } catch(error) { alert(error.message); }
+}
+
+async function bulkTrashSelected() {
+  const items = [...state.selectedFiles.values()];
+  if (!items.length || !confirm(`Send ${items.length} selected item${items.length===1?"":"s"} to trash?`)) return;
+  try {
+    await api("/api/bulk-trash", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ paths:items.map(item=>item.path) }) });
+    clearBulkFileSelection();
+    await loadFiles();
+  } catch(error) { alert(error.message); }
+}
+
+async function bulkDownloadSelected() {
+  const items = [...state.selectedFiles.values()];
+  try {
+    const result = await api("/api/bulk-download/validate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ paths:items.map(item=>item.path) }) });
+    await Promise.all(result.paths.map(path=>downloadFile(path)));
+  } catch(error) { alert(error.message); }
+}
+
+
+document.getElementById("bulk-move-btn")?.addEventListener("click", bulkMoveSelected);
+document.getElementById("bulk-trash-btn")?.addEventListener("click", bulkTrashSelected);
+document.getElementById("bulk-download-btn")?.addEventListener("click", bulkDownloadSelected);
+document.getElementById("bulk-clear-btn")?.addEventListener("click", clearBulkFileSelection);

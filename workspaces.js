@@ -25,7 +25,7 @@ export async function listUserWorkspaces(userId, systemRole) {
   const result = await query(
     `SELECT w.id,w.slug,w.name,w.description,w.status,w.storage_quota_mode,w.storage_quota_bytes,
             w.storage_used_bytes,w.filesystem_root,w.is_main,w.owner_id,w.suspension_reason,
-            w.storage_last_scanned_at,w.file_count,w.folder_count,w.trash_used_bytes,w.trash_limit_bytes,
+            w.storage_last_scanned_at,w.file_count,w.folder_count,w.trash_used_bytes,w.trash_limit_bytes,w.is_visible,
             CASE WHEN w.owner_id=$1 THEN 'owner' ELSE wm.permission END AS permission,
             u.username AS owner_username
      FROM workspaces w
@@ -303,4 +303,14 @@ export async function transferWorkspaceOwner(workspaceId, username, actorId, sys
     throw error;
   }
   return getWorkspaceForUser(workspaceId,actorId,systemRole);
+}
+
+
+export async function setMainWorkspaceVisibility(workspaceId, visible, actorId) {
+  const result = await query("SELECT id,is_main,owner_id FROM workspaces WHERE id=$1 LIMIT 1",[workspaceId]);
+  const workspace = result.rows[0];
+  if (!workspace || !workspace.is_main) throw new Error("Main Workspace not found");
+  if (String(workspace.owner_id) !== String(actorId)) throw new Error("Only the Main Workspace owner can change drive visibility");
+  await query("UPDATE workspaces SET is_visible=$2,updated_at=now() WHERE id=$1",[workspaceId,!!visible]);
+  return getWorkspaceForUser(workspaceId,actorId,"admin");
 }

@@ -83,6 +83,18 @@ async function ensureWorkspaceSettings(client) {
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS folder_count bigint NOT NULL DEFAULT 0`);
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trash_used_bytes bigint NOT NULL DEFAULT 0`);
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trash_limit_bytes bigint NOT NULL DEFAULT 209715200`);
+  await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email text`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_visible boolean NOT NULL DEFAULT true`);
+  await client.query(`CREATE TABLE IF NOT EXISTS workspace_transfer_requests(
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    requested_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','declined','cancelled')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    responded_at timestamptz,
+    responded_by uuid REFERENCES users(id) ON DELETE SET NULL
+  )`);
   await client.query(`INSERT INTO system_settings(setting_key,setting_value) VALUES('max_workspaces_per_user','1'::jsonb) ON CONFLICT(setting_key) DO NOTHING`);
 }
 

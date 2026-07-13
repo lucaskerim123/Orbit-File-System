@@ -12,6 +12,7 @@ import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser,
 import { canAccessPath, permissionsForPath, filterEntriesForRole, listPermissions, setPermission, clearPermission, normalizeFilePath } from "./permissions.js";
 import { needsSetup, runSetup, tryStartHiveServer } from "./setup.js";
 import { workspaceRouter } from "./workspace-routes.js";
+import { beginDownload } from "./download-limits.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -423,6 +424,50 @@ app.post("/api/move", express.json(), async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.post("/api/bulk-download/validate", express.json(), async (req,res)=>{
+  try {
+    const paths=Array.isArray(req.body?.paths)?req.body.paths:[];
+    if(!paths.length) throw new Error("Select at least one file");
+    if(paths.length>3) throw new Error("Maximum 3 files per bulk download");
+    if(!localOps) throw new Error("Bulk download size validation is unavailable");
+    let total=0;
+    for(const item of paths){
+      if(!(await requireFileAccess(req,res,item,"download"))) return;
+      const full=localOps.safeResolve(item);
+      const stat=await fs.stat(full);
+      if(!stat.isFile()) throw new Error("Folders cannot be bulk downloaded");
+      total+=stat.size;
+    }
+    if(total>262144000) throw new Error("Bulk download limit is 250 MB");
+    res.json({ok:true,paths,totalBytes:total});
+  } catch(err){res.status(400).json({error:err.message});}
+});
+
+app.post("/api/bulk-move", express.json(), async (req,res)=>{
+  try {
+    const paths=Array.isArray(req.body?.paths)?req.body.paths:[];
+    const destination=String(req.body?.destination||"").replace(/^\/+|\/+$/g,"");
+    if(!paths.length) throw new Error("Select at least one item");
+    const targets=paths.map(item=>({from:item,to:destination?`${destination}/${path.posix.basename(item)}`:path.posix.basename(item)}));
+    for(const item of targets){
+      if(!(await requireFileAccess(req,res,item.from,"move"))) return;
+      if(!(await requireFileAccess(req,res,parentPath(item.to),"create"))) return;
+    }
+    for(const item of targets) await hive.moveFile(item.from,item.to);
+    res.json({ok:true,moved:targets.length});
+  } catch(err){res.status(400).json({error:err.message});}
+});
+
+app.post("/api/bulk-trash", express.json(), async (req,res)=>{
+  try {
+    const paths=Array.isArray(req.body?.paths)?req.body.paths:[];
+    if(!paths.length) throw new Error("Select at least one item");
+    for(const item of paths) if(!(await requireFileAccess(req,res,item,"delete"))) return;
+    for(const item of paths) await hive.moveToTrash(item);
+    res.json({ok:true,trashed:paths.length});
+  } catch(err){res.status(400).json({error:err.message});}
 });
 
 app.post("/api/sort/preview", async (req, res) => {

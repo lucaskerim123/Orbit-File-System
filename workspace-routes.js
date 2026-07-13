@@ -1,9 +1,13 @@
 import express from "express";
+import fs from "fs/promises";
+import path from "path";
 import { Readable } from "stream";
 import { makeLocalOps } from "./local-hive-ops.js";
+import { beginDownload } from "./download-limits.js";
+import { requestWorkspaceTransfer,listTransferRequests,respondTransferRequest,cancelTransferRequest,listWorkspaceUserDirectory } from "./workspace-transfers.js";
 import { inviteWorkspaceUser,listPendingInvitations,listWorkspaceInvitations,respondToWorkspaceInvitation,revokeWorkspaceInvitation } from "./workspace-invitations.js";
 import {
-  listUserWorkspaces, getWorkspaceForUser, createWorkspace, updateWorkspace, deleteWorkspace,
+  listUserWorkspaces, getWorkspaceForUser, createWorkspace, updateWorkspace, deleteWorkspace, setMainWorkspaceVisibility,
   listWorkspaceMembers, setWorkspaceMember, removeWorkspaceMember, transferWorkspaceOwner,
   getWorkspaceCreationSettings, setMaxWorkspacesPerUser, ownedWorkspaceCount,
   refreshWorkspaceUsage, getWorkspaceStorage, assertWorkspaceWrite, assertWorkspaceQuota,
@@ -40,7 +44,16 @@ async function branched(req, res, next) {
   try {
     const workspace = await selectedWorkspace(req);
     assertNoTrashPath(req);
-    if (workspace.is_main) return next("router");
+    if (workspace.is_main) {
+      const isOwner = String(workspace.owner_id) === String(req.userId);
+      if (!workspace.is_visible && !isOwner) {
+        return res.status(423).json({ error:"Drive offline", driveOffline:true });
+      }
+      if (!isOwner && !["GET","HEAD"].includes(req.method)) {
+        return res.status(403).json({ error:"Main Workspace is read-only for this account" });
+      }
+      return next("router");
+    }
     if (workspace.status === "suspended" && req.role !== "admin") {
       return res.status(423).json({ error:"Workspace suspended", suspended:true, reason:workspace.suspension_reason || null });
     }
@@ -61,6 +74,26 @@ export function workspaceRouter() {
       const ownedCount = await ownedWorkspaceCount(req.userId);
       res.json({ workspaces, settings, ownedCount });
     } catch(error) { res.status(500).json({error:error.message}); }
+  });
+  router.get("/workspace-user-directory", async (req,res) => {
+    try { res.json({ users:await listWorkspaceUserDirectory() }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.get("/workspace-transfer-requests", async (req,res) => {
+    try { res.json({ requests:await listTransferRequests(req.userId,req.role) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.post("/workspaces/:id/transfer-request", express.json(), async (req,res) => {
+    try { res.status(201).json({ request:await requestWorkspaceTransfer(req.params.id,req.body?.username,req.userId,req.role) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.post("/workspace-transfer-requests/:id/respond", express.json(), async (req,res) => {
+    try { res.json(await respondTransferRequest(req.params.id,req.body?.decision,req.userId,req.role)); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.delete("/workspace-transfer-requests/:id", async (req,res) => {
+    try { res.json(await cancelTransferRequest(req.params.id,req.userId,req.role)); }
+    catch(error) { res.status(400).json({error:error.message}); }
   });
   router.get("/workspace-settings", async (req,res) => {
     try {
@@ -96,6 +129,10 @@ export function workspaceRouter() {
   });
   router.post("/workspaces", express.json(), async (req,res) => {
     try { res.status(201).json({ workspace:await createWorkspace({ ...req.body,userId:req.userId,username:req.username }) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.patch("/workspaces/:id/visibility", express.json(), async (req,res) => {
+    try { res.json({ workspace:await setMainWorkspaceVisibility(req.params.id,req.body?.visible,req.userId) }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.patch("/workspaces/:id", express.json(), async (req,res) => {
@@ -136,6 +173,47 @@ export function workspaceRouter() {
   router.delete("/workspaces/:id/members/:userId", async (req,res) => {
     try { res.json({ members:await removeWorkspaceMember(req.params.id,req.params.userId,req.userId,req.role) }); }
     catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.post("/bulk-download/validate",express.json(),branched,async(req,res)=>{
+    if(!req.workspace)return;
+    try{
+      const paths=Array.isArray(req.body?.paths)?req.body.paths:[];
+      if(!paths.length) throw new Error("Select at least one file");
+      if(paths.length>3) throw new Error("Maximum 3 files per bulk download");
+      let total=0;
+      for(const item of paths){
+        const full=req.workspaceOps.safeResolve(item);
+        const stat=await fs.stat(full);
+        if(!stat.isFile()) throw new Error("Folders cannot be bulk downloaded");
+        total+=stat.size;
+      }
+      if(total>262144000) throw new Error("Bulk download limit is 250 MB");
+      res.json({ok:true,paths,totalBytes:total});
+    }catch(error){res.status(400).json({error:error.message});}
+  });
+  router.post("/bulk-move",express.json(),branched,async(req,res)=>{
+    if(!req.workspace)return;
+    try{
+      assertWorkspaceWrite(req.workspace);
+      const paths=Array.isArray(req.body?.paths)?req.body.paths:[];
+      const destination=String(req.body?.destination||"").replace(/^\/+|\/+$/g,"");
+      if(!paths.length) throw new Error("Select at least one item");
+      const targets=paths.map(item=>({from:item,to:destination?`${destination}/${path.posix.basename(item)}`:path.posix.basename(item)}));
+      for(const item of targets){ await fs.stat(req.workspaceOps.safeResolve(item.from)); if(await req.workspaceOps.fileSize(item.to)) throw new Error(`Destination already exists: ${item.to}`); }
+      for(const item of targets) await req.workspaceOps.moveFile(item.from,item.to);
+      res.json({ok:true,moved:targets.length});
+    }catch(error){res.status(400).json({error:error.message});}
+  });
+  router.post("/bulk-trash",express.json(),branched,async(req,res)=>{
+    if(!req.workspace)return;
+    try{
+      assertWorkspaceWrite(req.workspace);
+      const paths=Array.isArray(req.body?.paths)?req.body.paths:[];
+      if(!paths.length) throw new Error("Select at least one item");
+      for(const item of paths) await fs.stat(req.workspaceOps.safeResolve(item));
+      for(const item of paths) await req.workspaceOps.moveToTrash(item,Number(req.workspace.trash_limit_bytes||209715200));
+      res.json({ok:true,trashed:paths.length,workspace:await refreshWorkspaceUsage(req.workspace)});
+    }catch(error){res.status(400).json({error:error.message});}
   });
   router.get("/files",branched,async(req,res)=>{
     if(!req.workspace)return;
@@ -190,7 +268,10 @@ export function workspaceRouter() {
     router.get(route,branched,async(req,res)=>{
       if(!req.workspace)return;
       try{
-        const {stream,filename}=await req.workspaceOps.downloadStream(req.query.path);
+        const {stream,filename,size}=await req.workspaceOps.downloadStream(req.query.path);
+        const release = route === "/download" ? beginDownload(req.userId,size) : () => {};
+        res.once("finish",release);
+        res.once("close",release);
         res.set("Content-Type","application/octet-stream");
         res.set("Content-Disposition",route==="/preview"?"inline":`attachment; filename="${encodeURIComponent(filename)}"`);
         stream.pipe(res);

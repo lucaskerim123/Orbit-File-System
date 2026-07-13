@@ -136,6 +136,7 @@ async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
     renderWorkspaceAdmin();
     renderAdminStorageOverview();
     loadWorkspaceInvitations();
+    loadWorkspaceTransferRequests();
   } catch (error) {
     const storage = document.getElementById("workspace-storage");
     if (storage) storage.textContent = error.message;
@@ -285,6 +286,7 @@ function ensureWorkspaceAdmin() {
   card.innerHTML = `
     <summary>Workspace manager</summary>
     <p id="workspace-admin-summary" class="muted-text"></p>
+    <div id="workspace-transfer-requests" class="workspace-transfer-requests"></div>
     ${state.role === "admin" ? `<form id="workspace-limit-form" class="workspace-limit-form">
       <label for="workspace-max-per-user">Maximum workspaces per user</label>
       <input id="workspace-max-per-user" type="number" min="0" max="1000" step="1" required />
@@ -452,8 +454,35 @@ function renderWorkspaceMembers(container, members, workspace, card, canManage) 
   for (const member of members) {
     const row = document.createElement("div");
     row.className = "workspace-member-row";
-    row.innerHTML = `<span><strong>${escapeWorkspaceHtml(member.username)}</strong><small>${escapeWorkspaceHtml(member.permission)}</small></span>${!canManage || member.permission === "owner" ? "" : '<button type="button" class="danger">Remove</button>'}`;
-    row.querySelector("button")?.addEventListener("click", async () => {
+    const canEditRole = canManage && member.permission !== "owner";
+    row.innerHTML = `
+      <span class="workspace-member-identity"><strong>${escapeWorkspaceHtml(member.username)}</strong><small>${escapeWorkspaceHtml(member.permission)}</small></span>
+      ${canEditRole ? `<div class="workspace-member-controls">
+        <select class="workspace-member-role" aria-label="Role for ${escapeWorkspaceHtml(member.username)}">
+          <option value="viewer">Viewer</option>
+          <option value="contributor">Contributor</option>
+          <option value="editor">Editor</option>
+        </select>
+        <button type="button" class="primary workspace-member-save">Save role</button>
+        <button type="button" class="danger workspace-member-remove">Remove</button>
+      </div>` : ""}`;
+    const roleSelect = row.querySelector(".workspace-member-role");
+    if (roleSelect) roleSelect.value = member.permission;
+    row.querySelector(".workspace-member-save")?.addEventListener("click", async () => {
+      const button = row.querySelector(".workspace-member-save");
+      button.disabled = true;
+      try {
+        await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(member.username)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ permission: roleSelect.value }),
+        });
+        await showWorkspaceMembers(workspace, card);
+        await loadOrbitWorkspaces(workspace.id);
+      } catch (error) { alert(error.message); }
+      finally { button.disabled = false; }
+    });
+    row.querySelector(".workspace-member-remove")?.addEventListener("click", async () => {
       try {
         await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(member.user_id)}`, { method: "DELETE" });
         await showWorkspaceMembers(workspace, card);
@@ -521,25 +550,34 @@ async function saveWorkspaceMember(event, workspace, card) {
   } catch (err) { error.textContent = err.message; }
 }
 
-function showWorkspaceSettings(workspace, card) {
+async function showWorkspaceSettings(workspace, card) {
   const detail = card.querySelector(".workspace-admin-detail");
   const isAdmin = state.role === "admin";
   detail.classList.remove("hidden");
+  detail.innerHTML = "Loading settings…";
+  let directory = [];
+  try { directory = (await api("/api/workspace-user-directory")).users || []; }
+  catch (error) { detail.innerHTML = `<p class="error">${escapeWorkspaceHtml(error.message)}</p>`; return; }
+  const userOptions = directory.map((user)=>`<option value="${escapeWorkspaceHtml(user.username)}">${escapeWorkspaceHtml(user.username)}${user.email ? ` — ${escapeWorkspaceHtml(user.email)}` : ""}</option>`).join("");
   detail.innerHTML = `
     <form class="workspace-settings-form">
       <label>Name<input name="name" type="text" value="${escapeWorkspaceHtml(workspace.name)}" required /></label>
       <label>Description<textarea name="description" rows="3">${escapeWorkspaceHtml(workspace.description || "")}</textarea></label>
       ${isAdmin ? `<label>Quota (GB)<input name="quotaGb" type="number" min="0" step="0.1" value="${(Number(workspace.storage_quota_bytes || 0)/1073741824).toFixed(2)}" /></label>
       <label>Trash limit (MB)<input name="trashLimitMb" type="number" min="0" step="1" value="${Math.round(Number(workspace.trash_limit_bytes || 209715200)/1048576)}" /></label>
-      <label>Owner username<input name="ownerUsername" type="text" value="${escapeWorkspaceHtml(workspace.owner_username || "")}" /></label>
+      <label>Workspace owner<select name="ownerUsername">${userOptions}</select></label>
       <label>Filesystem root<input name="root" type="text" value="${escapeWorkspaceHtml(workspace.filesystem_root || "")}" /></label>
       <label>Status<select name="status"><option value="active">Active</option><option value="suspended">Suspended</option><option value="archived">Archived</option></select></label>
       <label>Suspension reason<textarea name="suspensionReason" rows="3" maxlength="500">${escapeWorkspaceHtml(workspace.suspension_reason || "")}</textarea></label>` : ""}
       <button type="submit" class="primary">Save</button>
+      ${!isAdmin ? `<label>Request ownership transfer<select name="transferUsername"><option value="">Select user</option>${userOptions}</select></label><button type="button" class="workspace-transfer-request-btn">Request transfer</button>` : ""}
       <button type="button" class="danger workspace-delete-btn">Delete workspace</button>
     </form>
     <p class="error workspace-detail-error"></p>`;
-  if (isAdmin) detail.querySelector('[name="status"]').value = workspace.status;
+  if (isAdmin) {
+    detail.querySelector('[name="status"]').value = workspace.status;
+    detail.querySelector('[name="ownerUsername"]').value = workspace.owner_username || "";
+  }
   detail.querySelector("form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -560,6 +598,20 @@ function showWorkspaceSettings(workspace, card) {
       await loadOrbitWorkspaces(workspace.id);
     } catch (err) { error.textContent = err.message; }
   });
+  detail.querySelector(".workspace-transfer-request-btn")?.addEventListener("click", async () => {
+    const form = detail.querySelector("form");
+    const error = detail.querySelector(".workspace-detail-error");
+    const username = form.elements.transferUsername.value;
+    if (!username) { error.textContent = "Select a user first"; return; }
+    try {
+      await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/transfer-request`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({username}),
+      });
+      error.className = "muted-text workspace-detail-error";
+      error.textContent = "Transfer request sent for admin approval.";
+      await loadWorkspaceTransferRequests();
+    } catch (err) { error.className = "error workspace-detail-error"; error.textContent = err.message; }
+  });
   detail.querySelector(".workspace-delete-btn").addEventListener("click", async () => {
     if (!confirm(`Delete workspace "${workspace.name}" and all files permanently?`)) return;
     try {
@@ -569,6 +621,42 @@ function showWorkspaceSettings(workspace, card) {
       await loadOrbitWorkspaces();
     } catch (err) { detail.querySelector(".workspace-detail-error").textContent = err.message; }
   });
+}
+
+
+async function loadWorkspaceTransferRequests() {
+  const host = document.getElementById("workspace-transfer-requests");
+  if (!host || !state.token) return;
+  try {
+    const { requests } = await api("/api/workspace-transfer-requests");
+    if (!requests.length) { host.innerHTML = ""; return; }
+    host.innerHTML = `<h3>Ownership transfer requests</h3>`;
+    for (const request of requests) {
+      const row = document.createElement("div");
+      row.className = "workspace-transfer-row";
+      row.innerHTML = `<span><strong>${escapeWorkspaceHtml(request.workspace_name)}</strong><small>${escapeWorkspaceHtml(request.requested_by_username)} → ${escapeWorkspaceHtml(request.target_username)}${request.target_email ? ` · ${escapeWorkspaceHtml(request.target_email)}` : ""}</small></span><div></div>`;
+      const actions = row.lastElementChild;
+      if (state.role === "admin") {
+        for (const decision of ["approve","decline"]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = decision === "approve" ? "Approve" : "Decline";
+          if (decision === "approve") button.className = "primary";
+          button.addEventListener("click", async()=>{
+            await api(`/api/workspace-transfer-requests/${encodeURIComponent(request.id)}/respond`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({decision})});
+            await loadOrbitWorkspaces();
+          });
+          actions.appendChild(button);
+        }
+      } else {
+        const cancel = document.createElement("button");
+        cancel.type = "button"; cancel.textContent = "Cancel request";
+        cancel.addEventListener("click", async()=>{ await api(`/api/workspace-transfer-requests/${encodeURIComponent(request.id)}`,{method:"DELETE"}); await loadWorkspaceTransferRequests(); });
+        actions.appendChild(cancel);
+      }
+      host.appendChild(row);
+    }
+  } catch (error) { host.innerHTML = `<p class="error">${escapeWorkspaceHtml(error.message)}</p>`; }
 }
 
 const originalShowApp = showApp;
