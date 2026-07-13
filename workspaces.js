@@ -142,6 +142,7 @@ export async function updateWorkspace(workspaceId, changes, actorId, systemRole)
   if (changes.name !== undefined && !workspace.is_main) add("name", cleanName(changes.name));
   if (changes.description !== undefined) add("description", String(changes.description || "").trim().slice(0, 500));
   if (changes.status !== undefined && !workspace.is_main) {
+    if (systemRole !== "admin") throw new Error("Only admins can change workspace status");
     if (!["active", "suspended", "archived"].includes(changes.status)) throw new Error("Invalid workspace status");
     add("status", changes.status);
   }
@@ -165,6 +166,7 @@ export async function updateWorkspace(workspaceId, changes, actorId, systemRole)
 export async function listWorkspaceMembers(workspaceId, actorId, systemRole) {
   const workspace = await getWorkspaceForUser(workspaceId, actorId, systemRole);
   if (!workspace) throw new Error("Workspace not found or access denied");
+  if (systemRole !== "admin" && String(workspace.owner_id) !== String(actorId)) throw new Error("Owner access required");
   const result = await query(
     `SELECT wm.user_id,u.username,u.role AS system_role,wm.permission,wm.joined_at
      FROM workspace_members wm JOIN users u ON u.id=wm.user_id
@@ -217,4 +219,22 @@ export async function removeWorkspaceMember(workspaceId, userId, actorId, system
   if (String(userId) === String(workspace.owner_id)) throw new Error("Transfer ownership before removing the owner");
   await query("DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", [workspaceId, userId]);
   return listWorkspaceMembers(workspaceId, actorId, systemRole);
+}
+
+
+export async function deleteWorkspace(workspaceId, actorId, systemRole) {
+  const result = await query("SELECT * FROM workspaces WHERE id=$1 LIMIT 1", [workspaceId]);
+  const workspace = result.rows[0];
+  if (!workspace) throw new Error("Workspace not found");
+  if (workspace.is_main) throw new Error("Main Workspace cannot be deleted");
+  if (systemRole !== "admin" && String(workspace.owner_id) !== String(actorId)) {
+    throw new Error("Only the workspace owner or an admin can delete it");
+  }
+  const root = workspace.filesystem_root ? path.resolve(workspace.filesystem_root) : null;
+  await query("DELETE FROM workspaces WHERE id=$1", [workspaceId]);
+  if (root) {
+    try { await fs.rm(root, { recursive: true, force: true }); }
+    catch (error) { console.error("Workspace folder cleanup failed", error); }
+  }
+  return { ok: true };
 }

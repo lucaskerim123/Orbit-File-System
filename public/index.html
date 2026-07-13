@@ -111,6 +111,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="files">📁 Files</button>
       <button class="tab-btn hidden" id="tab-btn-sorter" data-tab="sorter">🧹 Sorter</button>
+      <button class="tab-btn" id="tab-btn-workspaces" data-tab="workspaces">🗂️ Workspaces</button>
       <button class="tab-btn hidden" id="tab-btn-system" data-tab="system">🖥️ System</button>
     </nav>
 
@@ -240,6 +241,18 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section id="tab-workspaces" class="tab-panel workspace-panel">
+      <div class="workspace-page-header">
+        <div><h2>Workspace Manager</h2><p class="muted-text">Your workspaces, invitations, members and roles.</p></div>
+        <button id="workspace-page-create" type="button" class="primary">+ Workspace</button>
+      </div>
+      <div id="workspace-invitations-panel" class="card">
+        <h3>Invitations</h3>
+        <div id="workspace-invitations-list" class="workspace-invitations-list"></div>
+      </div>
+      <div id="workspace-manager-host"></div>
     </section>
 
     <section id="tab-system" class="tab-panel sys-panel">

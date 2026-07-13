@@ -1,8 +1,9 @@
 import express from "express";
 import { Readable } from "stream";
 import { makeLocalOps } from "./local-hive-ops.js";
+import { inviteWorkspaceUser,listPendingInvitations,listWorkspaceInvitations,respondToWorkspaceInvitation,revokeWorkspaceInvitation } from "./workspace-invitations.js";
 import {
-  listUserWorkspaces, getWorkspaceForUser, createWorkspace, updateWorkspace,
+  listUserWorkspaces, getWorkspaceForUser, createWorkspace, updateWorkspace, deleteWorkspace,
   listWorkspaceMembers, setWorkspaceMember, removeWorkspaceMember,
   getWorkspaceCreationSettings, setMaxWorkspacesPerUser, ownedWorkspaceCount,
   refreshWorkspaceUsage, assertWorkspaceWrite, assertWorkspaceQuota,
@@ -62,12 +63,36 @@ export function workspaceRouter() {
     try { res.json(await setMaxWorkspacesPerUser(req.body?.maxWorkspacesPerUser)); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
+  router.get("/workspace-invitations", async (req,res) => {
+    try { res.json({ invitations:await listPendingInvitations(req.userId) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.post("/workspace-invitations/:id/respond", express.json(), async (req,res) => {
+    try { res.json(await respondToWorkspaceInvitation(req.params.id,req.userId,req.body?.decision)); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.get("/workspaces/:id/invitations", async (req,res) => {
+    try { res.json({ invitations:await listWorkspaceInvitations(req.params.id,req.userId,req.role) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.post("/workspaces/:id/invitations", express.json(), async (req,res) => {
+    try { res.status(201).json({ invitation:await inviteWorkspaceUser(req.params.id,req.body?.username,req.body?.permission,req.userId,req.role) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.delete("/workspace-invitations/:id", async (req,res) => {
+    try { res.json(await revokeWorkspaceInvitation(req.params.id,req.userId,req.role)); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
   router.post("/workspaces", express.json(), async (req,res) => {
     try { res.status(201).json({ workspace:await createWorkspace({ ...req.body,userId:req.userId,username:req.username }) }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.patch("/workspaces/:id", express.json(), async (req,res) => {
     try { res.json({ workspace:await updateWorkspace(req.params.id,req.body||{},req.userId,req.role) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.delete("/workspaces/:id", async (req,res) => {
+    try { res.json(await deleteWorkspace(req.params.id,req.userId,req.role)); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.get("/workspaces/:id/members", async (req,res) => {

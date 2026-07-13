@@ -7,6 +7,7 @@ const state = {
   previewFile: null,
   folderPermissions: null,
   currentPermissions: null,
+  fileLoadVersion: 0,
 };
 
 const ALL_FILE_PERMISSIONS = Object.freeze({ read: true, write: true, download: true, move: true, delete: true, create: true });
@@ -287,11 +288,15 @@ function closeAllPanels() {
 }
 
 async function loadFiles() {
-  document.getElementById("breadcrumb").textContent = `/${state.subpath}`;
+  const loadVersion = ++state.fileLoadVersion;
+  const requestedWorkspaceId = String(state.workspaceId || "");
+  const requestedSubpath = state.subpath;
+  document.getElementById("breadcrumb").textContent = `/${requestedSubpath}`;
   const list = document.getElementById("file-list");
   list.innerHTML = "<li>Loading…</li>";
   try {
-    const { entries, folderPermissions } = await api(`/api/files?subpath=${encodeURIComponent(state.subpath)}`);
+    const { entries, folderPermissions } = await api(`/api/files?subpath=${encodeURIComponent(requestedSubpath)}`);
+    if (loadVersion !== state.fileLoadVersion || requestedWorkspaceId !== String(state.workspaceId || "") || requestedSubpath !== state.subpath) return;
     state.folderPermissions = effectivePermissions(folderPermissions);
     document.getElementById("new-folder-btn").classList.toggle("hidden", !state.folderPermissions.create);
     document.getElementById("upload-btn").classList.toggle("hidden", !state.folderPermissions.create);

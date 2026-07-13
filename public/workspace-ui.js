@@ -114,6 +114,7 @@ async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
     if (state.workspaceId) localStorage.setItem("panelWorkspaceId", state.workspaceId);
     renderWorkspaceBar();
     renderWorkspaceAdmin();
+    loadWorkspaceInvitations();
   } catch (error) {
     const storage = document.getElementById("workspace-storage");
     if (storage) storage.textContent = error.message;
@@ -121,17 +122,68 @@ async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
 }
 window.loadOrbitWorkspaces = loadOrbitWorkspaces;
 
-function switchWorkspace(event) {
-  if (typeof confirmDiscardIfDirty === "function" && !confirmDiscardIfDirty()) {
-    event.target.value = state.workspaceId;
-    return;
-  }
-  state.workspaceId = event.target.value;
-  localStorage.setItem("panelWorkspaceId", state.workspaceId);
+
+let workspaceFileLoadGeneration = 0;
+
+function resetWorkspaceView() {
+  workspaceFileLoadGeneration += 1;
   state.subpath = "";
   if (typeof closeAllPanels === "function") closeAllPanels();
+  const list = document.getElementById("file-list");
+  if (list) list.innerHTML = "<li>Loading workspace…</li>";
+  const breadcrumb = document.getElementById("breadcrumb");
+  if (breadcrumb) breadcrumb.textContent = "/";
+  const uploadPanel = document.getElementById("upload-panel");
+  if (uploadPanel) uploadPanel.classList.add("hidden");
+}
+
+async function activateWorkspace(workspaceId, { openFiles = true } = {}) {
+  if (typeof confirmDiscardIfDirty === "function" && !confirmDiscardIfDirty()) return false;
+  state.workspaceId = String(workspaceId || "");
+  if (state.workspaceId) localStorage.setItem("panelWorkspaceId", state.workspaceId);
+  else localStorage.removeItem("panelWorkspaceId");
+  resetWorkspaceView();
   renderWorkspaceBar();
-  loadFiles();
+  if (openFiles) switchTab("files");
+  await loadFiles();
+  return true;
+}
+
+loadFiles = async function workspaceAwareLoadFiles() {
+  const generation = ++workspaceFileLoadGeneration;
+  const workspaceId = String(state.workspaceId || "");
+  const subpath = String(state.subpath || "");
+  const list = document.getElementById("file-list");
+  document.getElementById("breadcrumb").textContent = `/${subpath}`;
+  list.innerHTML = "<li>Loading…</li>";
+  try {
+    const { entries, folderPermissions } = await api(`/api/files?subpath=${encodeURIComponent(subpath)}`);
+    if (generation !== workspaceFileLoadGeneration || workspaceId !== String(state.workspaceId || "") || subpath !== String(state.subpath || "")) return;
+    state.folderPermissions = effectivePermissions(folderPermissions);
+    document.getElementById("new-folder-btn").classList.toggle("hidden", !state.folderPermissions.create);
+    document.getElementById("upload-btn").classList.toggle("hidden", !state.folderPermissions.create);
+    list.innerHTML = "";
+    if (subpath) {
+      const up = document.createElement("li");
+      up.className = "dir";
+      up.innerHTML = `<span class="row-name">..</span>`;
+      up.querySelector(".row-name").addEventListener("click", () => {
+        state.subpath = state.subpath.split("/").slice(0, -1).join("/");
+        loadFiles();
+      });
+      list.appendChild(up);
+    }
+    entries.sort((a,b)=>(a.type===b.type?a.name.localeCompare(b.name):a.type==="dir"?-1:1)).forEach((entry)=>renderRow(list,entry));
+    if (!entries.length && !subpath) list.innerHTML = "<li>(empty)</li>";
+  } catch (err) {
+    if (generation === workspaceFileLoadGeneration && workspaceId === String(state.workspaceId || "")) list.innerHTML = `<li>${escapeWorkspaceHtml(err.message)}</li>`;
+  }
+};
+
+async function switchWorkspace(event) {
+  const previous = state.workspaceId;
+  const changed = await activateWorkspace(event.target.value);
+  if (!changed) event.target.value = previous;
 }
 
 function ensureWorkspaceDialog() {
@@ -203,25 +255,24 @@ async function createWorkspaceFromDialog(event) {
 }
 
 function ensureWorkspaceAdmin() {
-  if (state.role !== "admin" || document.getElementById("workspace-admin-list")) return;
-  const zone = document.querySelector(".sys-zone-admin");
-  if (!zone) return;
+  if (document.getElementById("workspace-admin-list")) return;
+  const host = document.getElementById("workspace-manager-host");
+  if (!host) return;
   const card = document.createElement("details");
-  card.className = "card";
+  card.className = "card workspace-manager-card";
   card.open = true;
   card.innerHTML = `
     <summary>Workspace manager</summary>
     <p id="workspace-admin-summary" class="muted-text"></p>
-    <form id="workspace-limit-form" class="workspace-limit-form">
+    ${state.role === "admin" ? `<form id="workspace-limit-form" class="workspace-limit-form">
       <label for="workspace-max-per-user">Maximum workspaces per user</label>
       <input id="workspace-max-per-user" type="number" min="0" max="1000" step="1" required />
       <button type="submit" class="primary">Save limit</button>
       <small>0 = unlimited. Main Workspace is not counted.</small>
       <p id="workspace-limit-message" class="error"></p>
-    </form>
+    </form>` : ""}
     <div id="workspace-admin-list" class="workspace-admin-list"></div>`;
-  const label = zone.querySelector(".sys-zone-label");
-  label.insertAdjacentElement("afterend", card);
+  host.appendChild(card);
   document.getElementById("workspace-limit-form")?.addEventListener("submit", saveWorkspaceLimit);
 }
 
@@ -246,7 +297,6 @@ function workspaceQuotaText(workspace) {
 }
 
 function renderWorkspaceAdmin() {
-  if (state.role !== "admin") return;
   ensureWorkspaceAdmin();
   const list = document.getElementById("workspace-admin-list");
   const summary = document.getElementById("workspace-admin-summary");
@@ -261,6 +311,7 @@ function renderWorkspaceAdmin() {
 }
 
 function buildWorkspaceAdminCard(workspace) {
+  const canManage = state.role === "admin" || workspace.permission === "owner";
   const card = document.createElement("article");
   card.className = "workspace-admin-card";
   card.innerHTML = `
@@ -275,19 +326,14 @@ function buildWorkspaceAdminCard(workspace) {
       <div><dt>Root</dt><dd>${escapeWorkspaceHtml(workspace.filesystem_root || "—")}</dd></div>
     </dl>
     <div class="workspace-admin-actions">
-      <button type="button" class="workspace-members-btn">Members</button>
-      ${workspace.is_main ? "" : '<button type="button" class="workspace-edit-btn">Settings</button>'}
+      ${canManage ? '<button type="button" class="workspace-members-btn">Members</button>' : ""}
+      ${!workspace.is_main && canManage ? '<button type="button" class="workspace-edit-btn">Settings</button>' : ""}
     </div>
     <div class="workspace-admin-detail hidden"></div>`;
   card.querySelector(".workspace-open-btn").addEventListener("click", () => {
-    state.workspaceId = String(workspace.id);
-    localStorage.setItem("panelWorkspaceId", state.workspaceId);
-    state.subpath = "";
-    renderWorkspaceBar();
-    switchTab("files");
-    loadFiles();
+    activateWorkspace(workspace.id);
   });
-  card.querySelector(".workspace-members-btn").addEventListener("click", () => showWorkspaceMembers(workspace, card));
+  card.querySelector(".workspace-members-btn")?.addEventListener("click", () => showWorkspaceMembers(workspace, card));
   card.querySelector(".workspace-edit-btn")?.addEventListener("click", () => showWorkspaceSettings(workspace, card));
   return card;
 }
@@ -304,27 +350,28 @@ async function showWorkspaceMembers(workspace, card) {
   detail.innerHTML = "Loading members…";
   try {
     const { members } = await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/members`);
+    const canManage = state.role === "admin" || workspace.permission === "owner";
     detail.innerHTML = `
       <div class="workspace-member-list"></div>
-      <form class="workspace-member-form">
+      ${canManage ? `<form class="workspace-member-form">
         <input name="username" type="text" placeholder="Username" required autocomplete="off" />
-        <select name="permission"><option value="viewer">Viewer</option><option value="contributor">Contributor</option><option value="editor">Editor</option><option value="owner">Owner</option></select>
-        <button type="submit" class="primary">Add / update</button>
-      </form>
+        <select name="permission"><option value="viewer">Viewer</option><option value="contributor">Contributor</option><option value="editor">Editor</option></select>
+        <button type="submit" class="primary">Send invite</button>
+      </form>` : ""}
       <p class="error workspace-detail-error"></p>`;
-    renderWorkspaceMembers(detail.querySelector(".workspace-member-list"), members, workspace, card);
-    detail.querySelector(".workspace-member-form").addEventListener("submit", (event) => saveWorkspaceMember(event, workspace, card));
+    renderWorkspaceMembers(detail.querySelector(".workspace-member-list"), members, workspace, card, canManage);
+    detail.querySelector(".workspace-member-form")?.addEventListener("submit", (event) => inviteWorkspaceMember(event, workspace, card));
   } catch (error) {
     detail.textContent = error.message;
   }
 }
 
-function renderWorkspaceMembers(container, members, workspace, card) {
+function renderWorkspaceMembers(container, members, workspace, card, canManage) {
   container.innerHTML = "";
   for (const member of members) {
     const row = document.createElement("div");
     row.className = "workspace-member-row";
-    row.innerHTML = `<span><strong>${escapeWorkspaceHtml(member.username)}</strong><small>${escapeWorkspaceHtml(member.permission)}</small></span>${member.permission === "owner" ? "" : '<button type="button" class="danger">Remove</button>'}`;
+    row.innerHTML = `<span><strong>${escapeWorkspaceHtml(member.username)}</strong><small>${escapeWorkspaceHtml(member.permission)}</small></span>${!canManage || member.permission === "owner" ? "" : '<button type="button" class="danger">Remove</button>'}`;
     row.querySelector("button")?.addEventListener("click", async () => {
       try {
         await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(member.user_id)}`, { method: "DELETE" });
@@ -334,6 +381,44 @@ function renderWorkspaceMembers(container, members, workspace, card) {
     });
     container.appendChild(row);
   }
+}
+
+
+async function inviteWorkspaceMember(event, workspace, card) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const error = form.parentElement.querySelector(".workspace-detail-error");
+  error.textContent = "";
+  try {
+    await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/invitations`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: form.elements.username.value.trim(), permission: form.elements.permission.value }),
+    });
+    form.reset();
+    error.className = "muted-text workspace-detail-error";
+    error.textContent = "Invitation sent.";
+  } catch (err) { error.className = "error workspace-detail-error"; error.textContent = err.message; }
+}
+
+async function loadWorkspaceInvitations() {
+  const list = document.getElementById("workspace-invitations-list");
+  if (!list || !state.token) return;
+  try {
+    const { invitations } = await api("/api/workspace-invitations");
+    list.innerHTML = "";
+    if (!invitations.length) { list.innerHTML = '<p class="muted-text">No pending invitations.</p>'; return; }
+    for (const invite of invitations) {
+      const row = document.createElement("div");
+      row.className = "workspace-invite-row";
+      row.innerHTML = `<span><strong>${escapeWorkspaceHtml(invite.workspace_name)}</strong><small>${escapeWorkspaceHtml(invite.permission)} · from ${escapeWorkspaceHtml(invite.owner_username || invite.invited_by_username || "owner")}</small></span><div><button data-decision="accept" class="primary">Accept</button><button data-decision="decline">Decline</button></div>`;
+      row.querySelectorAll("button").forEach((button) => button.addEventListener("click", async () => {
+        await api(`/api/workspace-invitations/${encodeURIComponent(invite.id)}/respond`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision: button.dataset.decision }) });
+        await loadOrbitWorkspaces();
+        await loadWorkspaceInvitations();
+      }));
+      list.appendChild(row);
+    }
+  } catch (error) { list.innerHTML = `<p class="error">${escapeWorkspaceHtml(error.message)}</p>`; }
 }
 
 async function saveWorkspaceMember(event, workspace, card) {
@@ -357,35 +442,43 @@ async function saveWorkspaceMember(event, workspace, card) {
 
 function showWorkspaceSettings(workspace, card) {
   const detail = card.querySelector(".workspace-admin-detail");
+  const isAdmin = state.role === "admin";
   detail.classList.remove("hidden");
   detail.innerHTML = `
     <form class="workspace-settings-form">
-      <input name="name" type="text" value="${escapeWorkspaceHtml(workspace.name)}" required />
-      <input name="quota" type="number" min="0" step="1048576" value="${Number(workspace.storage_quota_bytes || 0)}" title="Quota in bytes" />
-      <input name="root" type="text" value="${escapeWorkspaceHtml(workspace.filesystem_root || "")}" title="Filesystem root" />
-      <select name="status"><option value="active">Active</option><option value="suspended">Suspended</option><option value="archived">Archived</option></select>
+      <label>Name<input name="name" type="text" value="${escapeWorkspaceHtml(workspace.name)}" required /></label>
+      <label>Description<textarea name="description" rows="3">${escapeWorkspaceHtml(workspace.description || "")}</textarea></label>
+      ${isAdmin ? `<label>Quota bytes<input name="quota" type="number" min="0" step="1048576" value="${Number(workspace.storage_quota_bytes || 0)}" /></label>
+      <label>Filesystem root<input name="root" type="text" value="${escapeWorkspaceHtml(workspace.filesystem_root || "")}" /></label>
+      <label>Status<select name="status"><option value="active">Active</option><option value="suspended">Suspended</option><option value="archived">Archived</option></select></label>` : ""}
       <button type="submit" class="primary">Save</button>
+      <button type="button" class="danger workspace-delete-btn">Delete workspace</button>
     </form>
     <p class="error workspace-detail-error"></p>`;
-  detail.querySelector('[name="status"]').value = workspace.status;
+  if (isAdmin) detail.querySelector('[name="status"]').value = workspace.status;
   detail.querySelector("form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const error = detail.querySelector(".workspace-detail-error");
-    error.textContent = "";
+    const body = { name: form.elements.name.value.trim(), description: form.elements.description.value.trim() };
+    if (isAdmin) {
+      body.storageQuotaBytes = Number(form.elements.quota.value || 0);
+      body.filesystemRoot = form.elements.root.value.trim();
+      body.status = form.elements.status.value;
+    }
     try {
-      await api(`/api/workspaces/${encodeURIComponent(workspace.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.elements.name.value.trim(),
-          storageQuotaBytes: Number(form.elements.quota.value || 0),
-          filesystemRoot: form.elements.root.value.trim(),
-          status: form.elements.status.value,
-        }),
-      });
+      await api(`/api/workspaces/${encodeURIComponent(workspace.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       await loadOrbitWorkspaces(workspace.id);
     } catch (err) { error.textContent = err.message; }
+  });
+  detail.querySelector(".workspace-delete-btn").addEventListener("click", async () => {
+    if (!confirm(`Delete workspace "${workspace.name}" and all files permanently?`)) return;
+    try {
+      await api(`/api/workspaces/${encodeURIComponent(workspace.id)}`, { method: "DELETE" });
+      state.workspaceId = "";
+      localStorage.removeItem("panelWorkspaceId");
+      await loadOrbitWorkspaces();
+    } catch (err) { detail.querySelector(".workspace-detail-error").textContent = err.message; }
   });
 }
 
@@ -402,4 +495,5 @@ loadSystem = async function() {
 };
 
 ensureWorkspaceDialog();
+document.getElementById("workspace-page-create")?.addEventListener("click", openWorkspaceDialog);
 if (state.token) setTimeout(() => loadOrbitWorkspaces(), 0);
