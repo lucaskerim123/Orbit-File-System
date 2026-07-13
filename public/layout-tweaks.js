@@ -26,24 +26,37 @@
     telemetryZone.appendChild(serverControls);
   }
 
+  function startupCardTitle(card) {
+    return card?.querySelector("summary, h2, h3")?.textContent?.trim().toLowerCase() || "";
+  }
+
   function keepSingleStartupControl() {
     const system = document.getElementById("tab-system");
     if (!system) return;
 
-    const forms = [...document.querySelectorAll('[id="startup-config-form"]')];
-    if (!forms.length) return;
+    const startupCards = [...document.querySelectorAll("details.card, article.card, section.card, .card")]
+      .filter((card) => {
+        const title = startupCardTitle(card);
+        return title === "startup load control" || title === "startup loading";
+      });
 
-    const keep = forms.find((form) => system.contains(form)) || forms[0];
-    const keepCard = keep.closest(".card, details, .sys-zone") || keep.parentElement;
+    const keepCard = startupCards.find((card) => startupCardTitle(card) === "startup load control")
+      || document.getElementById("startup-config-form")?.closest("details.card, article.card, section.card, .card");
 
-    if (!system.contains(keepCard)) {
+    if (keepCard && !system.contains(keepCard)) {
       const controlsZone = system.querySelector(".sys-zone-controls") || system;
       controlsZone.appendChild(keepCard);
     }
 
+    for (const card of startupCards) {
+      if (card !== keepCard && startupCardTitle(card) === "startup loading") card.remove();
+    }
+
+    const forms = [...document.querySelectorAll('[id="startup-config-form"]')];
+    const keepForm = keepCard?.querySelector('[id="startup-config-form"]') || forms[0];
     for (const form of forms) {
-      if (form === keep) continue;
-      const duplicateCard = form.closest(".card, details") || form.parentElement;
+      if (form === keepForm) continue;
+      const duplicateCard = form.closest("details.card, article.card, section.card, .card") || form.parentElement;
       duplicateCard?.remove();
     }
 
