@@ -192,3 +192,8 @@ const startupPickerScript = document.createElement("script");
 startupPickerScript.src = "startup-picker.js";
 startupPickerScript.async = false;
 document.body.appendChild(startupPickerScript);
+
+const layoutTweaksScript = document.createElement("script");
+layoutTweaksScript.src = "layout-tweaks.js";
+layoutTweaksScript.async = false;
+document.body.appendChild(layoutTweaksScript);
