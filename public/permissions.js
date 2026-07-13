@@ -141,7 +141,7 @@ function setPermissionPrompt(filepath) {
 
 function addPermissionButton(container, filepath, permissions) {
   if (!isAdminUser() || !container) return;
-  const btn = Object.assign(document.createElement("button"), { className: "icon-btn", textContent: "\u2699", title: "Customize user permissions" });
+  const btn = Object.assign(document.createElement("button"), { className: "icon-btn", textContent: "⚙", title: "Customize user permissions" });
   btn.addEventListener("click", (event) => { event.stopPropagation(); openPermissionEditor(filepath, permissions); });
   container.appendChild(btn);
 }
@@ -187,3 +187,8 @@ const docxViewerScript = document.createElement("script");
 docxViewerScript.src = "docx-viewer.js";
 docxViewerScript.async = false;
 document.body.appendChild(docxViewerScript);
+
+const startupPickerScript = document.createElement("script");
+startupPickerScript.src = "startup-picker.js";
+startupPickerScript.async = false;
+document.body.appendChild(startupPickerScript);
