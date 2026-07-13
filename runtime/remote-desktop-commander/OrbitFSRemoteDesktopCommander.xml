@@ -1,0 +1,22 @@
+﻿<service>
+  <id>OrbitFSRemoteDesktopCommander</id>
+  <name>OrbitFS Remote Desktop Commander</name>
+  <description>Runs Remote Desktop Commander continuously in the background for OrbitFS.</description>
+  <executable>C:\Program Files\nodejs\npx.cmd</executable>
+  <arguments>--yes @wonderwhy-er/desktop-commander@latest</arguments>
+  <workingdirectory>F:\OrbitFS Project\OrbitFS-Panel\scripts</workingdirectory>
+  <env name="HOME" value="C:\Users\Lucas" />
+  <env name="USERPROFILE" value="C:\Users\Lucas" />
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <stoptimeout>20sec</stoptimeout>
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="15 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <logpath>F:\OrbitFS Project\OrbitFS-Panel\runtime\remote-desktop-commander\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10485760</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>
