@@ -19,12 +19,25 @@
     if (admin && config.nextElementSibling !== admin) config.insertAdjacentElement("afterend", admin);
   }
 
+  function renamePresetLabels() {
+    const labels = qa("#startup-config-form .field-label");
+    labels.forEach((label) => {
+      const text = label.textContent.trim().toLowerCase();
+      if (text === "low") label.textContent = "Low preset";
+      if (text === "medium") label.textContent = "Medium preset";
+      if (text === "high") label.textContent = "High preset";
+    });
+
+    const save = q('#startup-config-form button[type="submit"]');
+    if (save) save.textContent = "Save startup presets";
+  }
+
   function cleanStartupConfig() {
     const host = q("#config-zone-main");
     if (!host) return;
 
     const startupCards = qa("details.card,article.card,section.card,.card")
-      .filter((card) => ["startup load control", "startup loading"].includes(cardTitle(card)));
+      .filter((card) => ["startup load control", "startup loading", "startup configuration", "startup presets"].includes(cardTitle(card)));
 
     const keep = startupCards.find((card) => cardTitle(card) === "startup load control")
       || q("#startup-config-form")?.closest("details.card,article.card,section.card,.card")
@@ -37,10 +50,10 @@
     if (keep && keep.parentElement !== host) host.prepend(keep);
 
     const summary = keep && q("summary", keep);
-    if (summary) summary.textContent = "Startup configuration";
+    if (summary) summary.textContent = "Startup presets";
 
     const intro = keep && q("p.muted-text", keep);
-    if (intro) intro.textContent = "Configure the files used by startup presets. Startup itself is launched from ChatGPT or Claude.";
+    if (intro) intro.textContent = "Choose which files load for each project and strength. ChatGPT or Claude runs startup using one of these presets.";
 
     const select = q("#startup-config-project");
     if (select && !q('option[value=""]', select)) {
@@ -52,6 +65,8 @@
       select.prepend(placeholder);
       select.value = "";
     }
+
+    renamePresetLabels();
 
     const form = q("#startup-config-form");
     if (form && !form.dataset.projectRequired) {
