@@ -108,7 +108,7 @@ function renderWorkspaceBar() {
   const createButton = document.getElementById("workspace-create-btn");
   const max = Number(state.workspaceSettings?.maxWorkspacesPerUser ?? 1);
   const owned = Number(state.workspaceSettings?.ownedCount ?? 0);
-  const reached = max > 0 && owned >= max;
+  const reached = state.role !== "admin" && max > 0 && owned >= max;
   if (createButton) { createButton.disabled = reached; createButton.title = reached ? `Workspace limit reached (${max})` : `${owned} of ${max || "unlimited"} workspaces used`; }
   const workspace = currentWorkspace();
   if (!workspace) return;
@@ -235,7 +235,7 @@ function openWorkspaceDialog() {
   ensureWorkspaceDialog();
   const max = Number(state.workspaceSettings?.maxWorkspacesPerUser ?? 1);
   const owned = Number(state.workspaceSettings?.ownedCount ?? 0);
-  if (max > 0 && owned >= max) return alert(`Workspace limit reached (${max})`);
+  if (state.role !== "admin" && max > 0 && owned >= max) return alert(`Workspace limit reached (${max})`);
   const hint = document.getElementById("workspace-limit-hint");
   if (hint) hint.textContent = `2.5 GB default quota · ${owned} of ${max || "unlimited"} workspaces used.`;
   document.getElementById("workspace-dialog").classList.remove("hidden");

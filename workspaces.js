@@ -69,10 +69,10 @@ export async function ownedWorkspaceCount(userId) {
   return result.rows[0]?.count || 0;
 }
 
-export async function createWorkspace({ name, description, userId, username }) {
+export async function createWorkspace({ name, description, userId, username, systemRole }) {
   const settings = await getWorkspaceCreationSettings();
   const currentCount = await ownedWorkspaceCount(userId);
-  if (settings.maxWorkspacesPerUser > 0 && currentCount >= settings.maxWorkspacesPerUser) {
+  if (systemRole !== "admin" && settings.maxWorkspacesPerUser > 0 && currentCount >= settings.maxWorkspacesPerUser) {
     throw new Error(`Workspace limit reached (${settings.maxWorkspacesPerUser})`);
   }
   const safeName = cleanName(name);

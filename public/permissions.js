@@ -141,7 +141,7 @@ function setPermissionPrompt(filepath) {
 
 function addPermissionButton(container, filepath, permissions) {
   if (!isAdminUser() || !container) return;
-  const btn = Object.assign(document.createElement("button"), { className: "icon-btn", textContent: "🔐", title: "Customize user permissions" });
+  const btn = Object.assign(document.createElement("button"), { className: "icon-btn", textContent: "\u2699", title: "Customize user permissions" });
   btn.addEventListener("click", (event) => { event.stopPropagation(); openPermissionEditor(filepath, permissions); });
   container.appendChild(btn);
 }

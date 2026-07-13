@@ -1064,3 +1064,34 @@ table.data-table tr:hover td { background: var(--bg); }
   margin-top: 0.4rem;
   font-size: 0.68rem;
 }
+
+.header-logout {
+  position: relative;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+.power-icon {
+  position: relative;
+  width: 1rem;
+  height: 1rem;
+  display: inline-block;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.power-icon::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -0.38rem;
+  width: 2px;
+  height: 0.7rem;
+  background: currentColor;
+  border-radius: 2px;
+  transform: translateX(-50%);
+}

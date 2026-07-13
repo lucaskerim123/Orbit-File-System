@@ -16,6 +16,14 @@ import { beginDownload } from "./download-limits.js";
 import { evaluateWorkspaceLifecycle } from "./workspaces.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function withTimeout(promise, ms, message = "Operation timed out") {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 dotenv.config({ path: path.join(__dirname, ".env") });
 const PORT = process.env.PANEL_PORT || 4000;
 const LOG_DIR = path.join(__dirname, "logs");
@@ -336,7 +344,7 @@ app.get("/api/files", async (req, res) => {
     if (!(await requireFileAccess(req, res, subpath, "read"))) return;
     let entries;
     try {
-      entries = await hive.listFiles(req.query.subpath);
+      entries = await withTimeout(hive.listFiles(req.query.subpath), 3500, "MCP file listing timed out");
     } catch (hiveErr) {
       if (!localOps) throw hiveErr;
       entries = await localOps.listFiles(req.query.subpath);
@@ -355,7 +363,7 @@ app.get("/api/file", async (req, res) => {
     if (!(await requireFileAccess(req, res, req.query.path, "read"))) return;
     let content;
     try {
-      content = await hive.readFile(req.query.path);
+      content = await withTimeout(hive.readFile(req.query.path), 3500, "MCP file read timed out");
     } catch (hiveErr) {
       if (!localOps) throw hiveErr;
       content = await localOps.readFile(req.query.path);

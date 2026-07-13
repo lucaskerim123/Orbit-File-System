@@ -134,7 +134,7 @@ export function workspaceRouter() {
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.post("/workspaces", express.json(), async (req,res) => {
-    try { res.status(201).json({ workspace:await createWorkspace({ ...req.body,userId:req.userId,username:req.username }) }); }
+    try { res.status(201).json({ workspace:await createWorkspace({ ...req.body,userId:req.userId,username:req.username,systemRole:req.role }) }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.get("/workspace-lifecycle-settings", async (req,res) => {
