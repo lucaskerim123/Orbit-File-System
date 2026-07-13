@@ -1541,6 +1541,8 @@ function renderStartupConfig() {
   document.getElementById("startup-files-low").value = (preset.low || []).join("\n");
   document.getElementById("startup-files-medium").value = (preset.medium || []).join("\n");
   document.getElementById("startup-files-high").value = (preset.high || []).join("\n");
+  document.getElementById("startup-files-custom1").value = (preset.custom1 || []).join("\n");
+  document.getElementById("startup-files-custom2").value = (preset.custom2 || []).join("\n");
 }
 async function loadStartupConfig() {
   if (state.role !== "admin") return;

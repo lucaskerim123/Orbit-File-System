@@ -415,10 +415,10 @@ app.post("/api/trash/empty", requireAdmin, async (req, res) => {
 const STARTUP_CONFIG_PATH = localHiveRoot ? path.join(localHiveRoot, "_system", "Config", "startup-loading.json") : null;
 const STARTUP_CONFIG_DEFAULT = {
   defaultStrength: "medium",
-  excludeFolders: ["_trash", "archive", "archives", "2. Wellbeing/Pure Vent Mode"],
+  excludeFolders: ["_trash", "trash", "archive", "archives", "_sorter", "2. Wellbeing/Pure Vent Mode"],
   presets: {
-    "1. Legal": { low: [], medium: [], high: [] },
-    "2. Wellbeing": { low: [], medium: [], high: [] },
+    "1. Legal": { low: [], medium: [], high: [], custom1: [], custom2: [] },
+    "2. Wellbeing": { low: [], medium: [], high: [], custom1: [], custom2: [] },
   },
 };
 

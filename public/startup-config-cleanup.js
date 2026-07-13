@@ -34,6 +34,8 @@
       if (text === "low") label.textContent = "Low preset additions";
       if (text === "medium") label.textContent = "Medium preset additions";
       if (text === "high") label.textContent = "High preset additions";
+      if (text === "custom 1") label.textContent = "Custom 1 preset additions";
+      if (text === "custom 2") label.textContent = "Custom 2 preset additions";
     });
     const save = q('#startup-config-form button[type="submit"]');
     if (save) save.textContent = "Save startup presets";
@@ -50,7 +52,7 @@
   }
 
   function cleanPresetTextareas() {
-    ["startup-files-low", "startup-files-medium", "startup-files-high"].forEach((id) => normalizePresetTextarea(q(`#${id}`)));
+    ["startup-files-low", "startup-files-medium", "startup-files-high", "startup-files-custom1", "startup-files-custom2"].forEach((id) => normalizePresetTextarea(q(`#${id}`)));
   }
 
   function ensureAlwaysLoadedPanel(keep) {
@@ -119,7 +121,7 @@
           project.focus();
         }
       }, true);
-      ["startup-files-low", "startup-files-medium", "startup-files-high"].forEach((id) => {
+      ["startup-files-low", "startup-files-medium", "startup-files-high", "startup-files-custom1", "startup-files-custom2"].forEach((id) => {
         q(`#${id}`)?.addEventListener("change", cleanPresetTextareas);
       });
     }
