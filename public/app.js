@@ -177,6 +177,12 @@ function showApp() {
     ? `${state.username} · ${state.role}`
     : state.username;
   document.getElementById("tab-btn-system").classList.toggle("hidden", state.role !== "admin");
+  document.getElementById("tab-btn-admin")?.classList.toggle("hidden", state.role !== "admin");
+  const adminZone = document.querySelector("#tab-system .sys-zone-admin");
+  const adminHost = document.getElementById("admin-zone-host");
+  if (adminZone && adminHost && adminZone.parentElement !== adminHost) adminHost.appendChild(adminZone);
+  switchTab("files");
+  loadFiles();
   refreshStatus();
   loadFiles();
   checkSorterAvailable();
@@ -223,7 +229,8 @@ document.getElementById("pin-toggle").addEventListener("click", () => {
 function switchTab(tabName) {
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabName));
   document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${tabName}`));
-  if (tabName === "system") loadSystem();
+  if (tabName === "system" || tabName === "admin") loadSystem();
+  if (tabName === "account") loadAccountPanel();
   if (tabName === "sorter") sorterLoad();
 }
 
@@ -254,10 +261,43 @@ async function refreshStatus() {
   try {
     const status = await api("/api/status");
     setPill("status-hive", status.hive.ok);
+    const mcp = document.getElementById("mini-mcp-status");
+    const sorter = document.getElementById("mini-sorter-status");
+    const checked = document.getElementById("mini-status-time");
+    if (mcp) {
+      mcp.textContent = status.hive.ok ? "Online" : "Offline";
+      mcp.dataset.state = status.hive.ok ? "ok" : "down";
+    }
+    if (sorter) {
+      sorter.textContent = status.sorter?.ok ? "Online" : (status.sorter?.installed ? "Offline" : "Not installed");
+      sorter.dataset.state = status.sorter?.ok ? "ok" : "down";
+    }
+    if (checked) checked.textContent = `Updated ${new Date(status.checkedAt).toLocaleTimeString()}`;
+    return status;
   } catch {
-    // handled via logout on 401; ignore transient errors otherwise
+    const mcp = document.getElementById("mini-mcp-status");
+    const sorter = document.getElementById("mini-sorter-status");
+    if (mcp) mcp.textContent = "Unavailable";
+    if (sorter) sorter.textContent = "Unavailable";
+    return null;
   }
 }
+
+const hiveStatusButton = document.getElementById("status-hive");
+const hiveMiniStatus = document.getElementById("hive-mini-status");
+hiveStatusButton?.addEventListener("click", async (event) => {
+  event.stopPropagation();
+  const opening = hiveMiniStatus.classList.contains("hidden");
+  hiveMiniStatus.classList.toggle("hidden", !opening);
+  hiveStatusButton.setAttribute("aria-expanded", String(opening));
+  if (opening) await refreshStatus();
+});
+document.addEventListener("click", (event) => {
+  if (!hiveMiniStatus || hiveMiniStatus.classList.contains("hidden")) return;
+  if (hiveMiniStatus.contains(event.target) || hiveStatusButton.contains(event.target)) return;
+  hiveMiniStatus.classList.add("hidden");
+  hiveStatusButton.setAttribute("aria-expanded", "false");
+});
 
 function setPill(id, ok, text) {
   const el = document.getElementById(id);
@@ -362,7 +402,7 @@ function renderRow(list, entry) {
 
   // entry.permissions describes what a normal user may do so Admin can edit
   // that rule. It must never hide Admin's own controls.
-  const permissions = state.role === "admin" ? { ...ALL_FILE_PERMISSIONS } : effectivePermissions(entry.permissions);
+  const permissions = state.role === "admin" && (!(typeof currentWorkspace === "function" && currentWorkspace()?.is_main) || currentWorkspace()?.permission === "owner") ? { ...ALL_FILE_PERMISSIONS } : effectivePermissions(entry.permissions);
   if (entry.type === "file" && permissions.download) {
     const dl = document.createElement("button");
     dl.className = "icon-btn";
@@ -612,7 +652,7 @@ async function openPreview(filepath, entry) {
   if (!confirmDiscardIfDirty()) return;
   closeAllPanels();
   state.previewFile = filepath;
-  state.currentPermissions = state.role === "admin" ? { ...ALL_FILE_PERMISSIONS } : effectivePermissions(entry.permissions);
+  state.currentPermissions = state.role === "admin" && (!(typeof currentWorkspace === "function" && currentWorkspace()?.is_main) || currentWorkspace()?.permission === "owner") ? { ...ALL_FILE_PERMISSIONS } : effectivePermissions(entry.permissions);
   document.getElementById("preview-path").textContent = filepath;
   document.getElementById("preview").classList.remove("hidden");
   document.getElementById("files-layout").classList.add("editor-open");
@@ -869,6 +909,7 @@ document.getElementById("back-to-list-btn").addEventListener("click", () => {
   if (confirmDiscardIfDirty()) closeAllPanels();
 });
 document.getElementById("preview-back-btn").addEventListener("click", closeAllPanels);
+document.getElementById("preview-close-btn")?.addEventListener("click", closeAllPanels);
 
 document.getElementById("save-file-btn").addEventListener("click", async () => {
   if (!state.openFile || !cm) return;
@@ -1569,6 +1610,8 @@ async function loadUsers() {
       const tr = document.createElement("tr");
       const nameTd = document.createElement("td");
       nameTd.textContent = u.username;
+      const emailTd = document.createElement("td");
+      emailTd.textContent = u.email || "—";
       const roleTd = document.createElement("td");
       roleTd.textContent = u.role;
       const actionTd = document.createElement("td");
@@ -1578,7 +1621,7 @@ async function loadUsers() {
       del.title = "Delete user";
       del.addEventListener("click", () => deleteUser(u.username));
       actionTd.appendChild(del);
-      tr.append(nameTd, roleTd, actionTd);
+      tr.append(nameTd, emailTd, roleTd, actionTd);
       body.appendChild(tr);
     });
     if (!users.length) body.innerHTML = `<tr><td colspan="3">(none)</td></tr>`;
@@ -1602,13 +1645,14 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
   const username = document.getElementById("user-form-username").value.trim();
   const pin = document.getElementById("user-form-pin").value.trim();
   const role = document.getElementById("user-form-role").value;
+  const email = document.getElementById("user-form-email").value.trim();
   const errorEl = document.getElementById("user-form-error");
   errorEl.textContent = "";
   try {
     await api("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, pin, role }),
+      body: JSON.stringify({ username, pin, role, email }),
     });
     e.target.reset();
     loadUsers();
@@ -1872,3 +1916,52 @@ document.getElementById("bulk-move-btn")?.addEventListener("click", bulkMoveSele
 document.getElementById("bulk-trash-btn")?.addEventListener("click", bulkTrashSelected);
 document.getElementById("bulk-download-btn")?.addEventListener("click", bulkDownloadSelected);
 document.getElementById("bulk-clear-btn")?.addEventListener("click", clearBulkFileSelection);
+
+
+async function loadAccountPanel() {
+  if (!state.token) return;
+  const message = document.getElementById("account-message");
+  try {
+    const { user } = await api("/api/me");
+    document.getElementById("account-username").value = user.username || "";
+    document.getElementById("account-email").value = user.email || "";
+    const stats = document.getElementById("account-stats");
+    stats.innerHTML = `
+      <div><span>System role</span><strong>${escapeHtml(user.role || "user")}</strong></div>
+      <div><span>Owned workspaces</span><strong>${Number(user.owned_workspaces || 0)}</strong></div>
+      <div><span>Workspace memberships</span><strong>${Number(user.workspace_memberships || 0)}</strong></div>
+      <div><span>Active sessions</span><strong>${Number(user.active_sessions || 0)}</strong></div>`;
+    if (message) message.textContent = "";
+  } catch (error) { if (message) message.textContent = error.message; }
+}
+
+document.getElementById("tab-btn-account")?.addEventListener("click", loadAccountPanel);
+document.getElementById("account-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = document.getElementById("account-message");
+  message.className = "muted-text";
+  message.textContent = "Saving…";
+  try {
+    const body = { email:document.getElementById("account-email").value.trim() };
+    const pin = document.getElementById("account-pin").value.trim();
+    if (pin) body.pin = pin;
+    await api("/api/me", { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    document.getElementById("account-pin").value = "";
+    message.textContent = "Account updated.";
+    await loadAccountPanel();
+  } catch (error) { message.className = "error"; message.textContent = error.message; }
+});
+
+
+document.getElementById("admin-refresh-btn")?.addEventListener("click", loadSystem);
+
+document.getElementById("select-all-btn")?.addEventListener("click", () => {
+  const boxes=[...document.querySelectorAll("#file-list .file-select")];
+  const shouldSelect=boxes.some(box=>!box.checked);
+  for(const box of boxes){
+    if(box.checked===shouldSelect) continue;
+    box.checked=shouldSelect;
+    box.dispatchEvent(new Event("change",{bubbles:true}));
+  }
+  document.getElementById("select-all-btn").textContent=shouldSelect?"Clear all":"Select all";
+});

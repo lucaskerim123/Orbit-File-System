@@ -11,6 +11,8 @@ import {
   listWorkspaceMembers, setWorkspaceMember, removeWorkspaceMember, transferWorkspaceOwner,
   getWorkspaceCreationSettings, setMaxWorkspacesPerUser, ownedWorkspaceCount,
   refreshWorkspaceUsage, getWorkspaceStorage, assertWorkspaceWrite, assertWorkspaceQuota,
+  setWorkspaceDriveState,getWorkspaceLifecycleSettings,setWorkspaceLifecycleSettings,
+  evaluateWorkspaceLifecycle,touchWorkspaceActivity,
 } from "./workspaces.js";
 
 const FULL = { read:true,write:true,download:true,move:true,delete:true,create:true };
@@ -54,6 +56,9 @@ async function branched(req, res, next) {
       }
       return next("router");
     }
+    if (workspace.drive_state === "offline") {
+      return res.status(423).json({ error:"Drive offline", driveOffline:true, deletionDueAt:workspace.deletion_due_at, notice:workspace.lifecycle_notice });
+    }
     if (workspace.status === "suspended" && req.role !== "admin") {
       return res.status(423).json({ error:"Workspace suspended", suspended:true, reason:workspace.suspension_reason || null });
     }
@@ -69,8 +74,9 @@ export function workspaceRouter() {
   const router = express.Router();
   router.get("/workspaces", async (req,res) => {
     try {
+      await evaluateWorkspaceLifecycle();
       const workspaces = await listUserWorkspaces(req.userId,req.role);
-      const settings = await getWorkspaceCreationSettings();
+      const settings = { ...(await getWorkspaceCreationSettings()), ...(await getWorkspaceLifecycleSettings()) };
       const ownedCount = await ownedWorkspaceCount(req.userId);
       res.json({ workspaces, settings, ownedCount });
     } catch(error) { res.status(500).json({error:error.message}); }
@@ -129,6 +135,19 @@ export function workspaceRouter() {
   });
   router.post("/workspaces", express.json(), async (req,res) => {
     try { res.status(201).json({ workspace:await createWorkspace({ ...req.body,userId:req.userId,username:req.username }) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.get("/workspace-lifecycle-settings", async (req,res) => {
+    try { res.json(await getWorkspaceLifecycleSettings()); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.patch("/workspace-lifecycle-settings", express.json(), async (req,res) => {
+    if(req.role!=="admin") return res.status(403).json({error:"Admin access required"});
+    try { res.json(await setWorkspaceLifecycleSettings(req.body||{})); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.patch("/workspaces/:id/drive-state", express.json(), async (req,res) => {
+    try { res.json({workspace:await setWorkspaceDriveState(req.params.id,!!req.body?.online,req.userId,req.role)}); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.patch("/workspaces/:id/visibility", express.json(), async (req,res) => {
@@ -235,6 +254,7 @@ export function workspaceRouter() {
       const current=await req.workspaceOps.fileSize(req.body.path);
       assertWorkspaceQuota(req.workspace,Buffer.byteLength(req.body.content||""),current);
       await req.workspaceOps.writeFile(req.body.path,req.body.content||"");
+      await touchWorkspaceActivity(req.workspace.id);
       await refreshWorkspaceUsage(req.workspace);
       res.json({ok:true});
     }catch(error){res.status(400).json({error:error.message});}
@@ -246,12 +266,14 @@ export function workspaceRouter() {
   });
   router.post("/mkdir",express.json(),branched,async(req,res)=>{
     if(!req.workspace)return;
-    try{assertWorkspaceWrite(req.workspace);await req.workspaceOps.mkdir(req.body.path);res.json({ok:true});}
+    try{assertWorkspaceWrite(req.workspace);await req.workspaceOps.mkdir(req.body.path);
+      await touchWorkspaceActivity(req.workspace.id);res.json({ok:true});}
     catch(error){res.status(400).json({error:error.message});}
   });
   router.post("/move",express.json(),branched,async(req,res)=>{
     if(!req.workspace)return;
-    try{assertWorkspaceWrite(req.workspace);await req.workspaceOps.moveFile(req.body.from,req.body.to);res.json({ok:true});}
+    try{assertWorkspaceWrite(req.workspace);await req.workspaceOps.moveFile(req.body.from,req.body.to);
+      await touchWorkspaceActivity(req.workspace.id);res.json({ok:true});}
     catch(error){res.status(400).json({error:error.message});}
   });
   router.post("/trash",express.json(),branched,async(req,res)=>{
@@ -259,6 +281,7 @@ export function workspaceRouter() {
     try{
       assertWorkspaceWrite(req.workspace);
       const result=await req.workspaceOps.moveToTrash(req.body.path,Number(req.workspace.trash_limit_bytes||209715200));
+      await touchWorkspaceActivity(req.workspace.id);
       const workspace=await refreshWorkspaceUsage(req.workspace);
       res.json({...result,workspace});
     }
@@ -285,6 +308,7 @@ export function workspaceRouter() {
       const current=await req.workspaceOps.fileSize(req.query.path);
       assertWorkspaceQuota(req.workspace,req.body?.length||0,current);
       await req.workspaceOps.writeBuffer(req.query.path,req.body||Buffer.alloc(0));
+      await touchWorkspaceActivity(req.workspace.id);
       await refreshWorkspaceUsage(req.workspace);
       res.json({ok:true});
     }catch(error){res.status(400).json({error:error.message});}

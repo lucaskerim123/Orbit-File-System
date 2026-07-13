@@ -1025,3 +1025,42 @@ table.data-table tr:hover td { background: var(--bg); }
 .upload-item-status{margin-top:.3rem;font-size:.72rem;color:var(--muted)}.upload-item.failed .upload-item-status{color:var(--danger)}.upload-item.done .upload-item-status{color:var(--ok)}
 .upload-footer{margin-top:.75rem;padding-top:.7rem;border-top:1px solid var(--border)}
 @media(max-width:620px){.upload-panel{margin-inline:-.1rem}.upload-options,.upload-footer{align-items:stretch;flex-direction:column}.upload-options>*,.upload-footer>*{width:100%}.upload-dropzone{min-height:105px}}
+
+.status-pills { position: relative; }
+.status-hive-button {
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.header-logout {
+  font-size: 1.15rem;
+  line-height: 1;
+  min-width: 2rem;
+}
+.hive-mini-status {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 2.35rem;
+  z-index: 200;
+  width: min(240px, calc(100vw - 2rem));
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+}
+.hive-mini-status > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+}
+.hive-mini-status span,
+.hive-mini-status small { color: var(--muted); }
+.hive-mini-status strong[data-state="ok"] { color: var(--ok); }
+.hive-mini-status strong[data-state="down"] { color: var(--danger); }
+.hive-mini-status small {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.68rem;
+}

@@ -268,3 +268,14 @@
   .workspace-transfer-row > div { width: 100%; }
   .workspace-transfer-row button { flex: 1; }
 }
+
+.workspace-admin-card:has(.workspace-drive-state-btn) .workspace-drive-state-btn {
+  border-color: var(--border);
+}
+.workspace-admin-card .workspace-suspension-note + .workspace-suspension-note {
+  margin-top: 0.4rem;
+}
+.workspace-option-offline,
+#workspace-select option:disabled {
+  color: var(--muted);
+}

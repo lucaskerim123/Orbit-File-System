@@ -99,8 +99,9 @@ function renderWorkspaceBar() {
   for (const workspace of state.workspaces) {
     const option = document.createElement("option");
     option.value = workspace.id;
-    option.textContent = workspace.is_main ? `Main Workspace — ${workspace.name}` : `${workspace.name}${workspace.status === "suspended" ? " — Suspended" : ""}`;
-    option.disabled = workspace.status === "suspended" && state.role !== "admin";
+    const offline = !workspace.is_main && workspace.drive_state === "offline";
+    option.textContent = workspace.is_main ? `Main Workspace — ${workspace.name}` : `${workspace.name}${offline ? " — Drive offline" : (workspace.status === "suspended" ? " — Suspended" : "")}`;
+    option.disabled = offline || (workspace.status === "suspended" && state.role !== "admin");
     select.appendChild(option);
   }
   select.value = state.workspaceId;
@@ -126,7 +127,7 @@ async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
   try {
     const response = await api("/api/workspaces");
     state.workspaces = response.workspaces || [];
-    state.workspaceSettings = { maxWorkspacesPerUser: Number(response.settings?.maxWorkspacesPerUser ?? 1), ownedCount: Number(response.ownedCount ?? 0) };
+    state.workspaceSettings = { ...response.settings, maxWorkspacesPerUser: Number(response.settings?.maxWorkspacesPerUser ?? 1), ownedCount: Number(response.ownedCount ?? 0) };
     const selected = state.workspaces.find((item) => String(item.id) === String(preferredId))
       || state.workspaces.find((item) => item.is_main)
       || state.workspaces[0];
@@ -293,10 +294,20 @@ function ensureWorkspaceAdmin() {
       <button type="submit" class="primary">Save limit</button>
       <small>0 = unlimited. Main Workspace is not counted.</small>
       <p id="workspace-limit-message" class="error"></p>
+    </form>
+    <form id="workspace-lifecycle-form" class="workspace-limit-form">
+      <label>Inactive before offline (days)<input name="inactiveDays" type="number" min="1" max="3650" required /></label>
+      <label>Offline warning (days)<input name="offlineWarningDays" type="number" min="1" max="3650" required /></label>
+      <label>Delete after offline (days)<input name="deleteAfterOfflineDays" type="number" min="1" max="3650" required /></label>
+      <label>Deletion warning (days)<input name="deleteWarningDays" type="number" min="1" max="3650" required /></label>
+      <button type="submit" class="primary">Save lifecycle</button>
+      <small>Main Workspace is excluded. Offline workspaces keep files but release their quota allocation.</small>
+      <p id="workspace-lifecycle-message" class="error"></p>
     </form>` : ""}
     <div id="workspace-admin-list" class="workspace-admin-list"></div>`;
   host.appendChild(card);
   document.getElementById("workspace-limit-form")?.addEventListener("submit", saveWorkspaceLimit);
+  document.getElementById("workspace-lifecycle-form")?.addEventListener("submit", saveWorkspaceLifecycle);
 }
 
 async function saveWorkspaceLimit(event) {
@@ -312,6 +323,20 @@ async function saveWorkspaceLimit(event) {
     renderWorkspaceBar(); renderWorkspaceAdmin();
   } catch (error) { message.className = "error"; message.textContent = error.message; }
   finally { button.disabled = false; }
+}
+
+
+async function saveWorkspaceLifecycle(event) {
+  event.preventDefault();
+  const form=event.currentTarget;
+  const message=document.getElementById("workspace-lifecycle-message");
+  const body=Object.fromEntries(new FormData(form));
+  for(const key of Object.keys(body)) body[key]=Number(body[key]);
+  try {
+    const result=await api("/api/workspace-lifecycle-settings",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    Object.assign(state.workspaceSettings,result);
+    message.className="muted-text"; message.textContent="Saved.";
+  } catch(error){ message.className="error"; message.textContent=error.message; }
 }
 
 function workspaceQuotaText(workspace) {
@@ -349,34 +374,47 @@ function renderWorkspaceAdmin() {
   summary.textContent = `${state.workspaces.length} visible workspace${state.workspaces.length === 1 ? "" : "s"} · ${workspaceFormatBytes(total)} tracked · user limit ${max || "unlimited"}`;
   const input = document.getElementById("workspace-max-per-user");
   if (input) input.value = String(max);
+  const lifecycleForm=document.getElementById("workspace-lifecycle-form");
+  if(lifecycleForm){
+    for(const key of ["inactiveDays","offlineWarningDays","deleteAfterOfflineDays","deleteWarningDays"]){
+      if(lifecycleForm.elements[key]) lifecycleForm.elements[key].value=String(state.workspaceSettings?.[key] ?? "");
+    }
+  }
   list.innerHTML = "";
   for (const workspace of state.workspaces) list.appendChild(buildWorkspaceAdminCard(workspace));
 }
 
 function buildWorkspaceAdminCard(workspace) {
-  const canManage = state.role === "admin" || workspace.permission === "owner";
+  const isOwner = workspace.permission === "owner";
+  const canManage = workspace.is_main ? isOwner : (state.role === "admin" || isOwner);
   const isSuspended = workspace.status === "suspended";
-  const canOpen = !isSuspended || state.role === "admin";
+  const mainOffline = workspace.is_main && workspace.is_visible === false;
+  const branchOffline = !workspace.is_main && workspace.drive_state === "offline";
+  const canOpen = !branchOffline && (!isSuspended || state.role === "admin") && (!mainOffline || isOwner);
   const card = document.createElement("article");
   card.className = `workspace-admin-card${isSuspended ? " workspace-suspended" : ""}`;
   card.innerHTML = `
     <div class="workspace-admin-head">
-      <div><strong>${escapeWorkspaceHtml(workspace.name)}</strong><span>${workspace.is_main ? "Main Workspace" : escapeWorkspaceHtml(workspace.status)}</span></div>
-      <button type="button" class="workspace-open-btn" ${canOpen ? "" : "disabled"}>${isSuspended && state.role !== "admin" ? "Suspended" : "Open"}</button>
+      <div><strong>${escapeWorkspaceHtml(workspace.name)}</strong><span>${workspace.is_main ? (mainOffline ? "Drive offline" : "Main Workspace") : (branchOffline ? "Drive offline" : escapeWorkspaceHtml(workspace.status))}</span></div>
+      <button type="button" class="workspace-open-btn" ${canOpen ? "" : "disabled"}>${branchOffline ? "Drive offline" : (mainOffline && !isOwner ? "Drive offline" : (isSuspended && state.role !== "admin" ? "Suspended" : "Open"))}</button>
     </div>
     <dl>
       <div><dt>Owner</dt><dd>${escapeWorkspaceHtml(workspace.owner_username || "—")}</dd></div>
       <div><dt>Role</dt><dd>${escapeWorkspaceHtml(workspace.permission || "admin")}</dd></div>
       <div><dt>Storage</dt><dd>${escapeWorkspaceHtml(workspaceStorageSummary(workspace))}</dd></div>
+      <div><dt>Allocated</dt><dd>${workspaceFormatBytes(workspace.allocated_bytes || 0)}</dd></div>
       <div><dt>Trash</dt><dd>${workspaceFormatBytes(workspace.trash_used_bytes || 0)} / ${workspaceFormatBytes(workspace.trash_limit_bytes || 209715200)}</dd></div>
       <div><dt>Files</dt><dd>${Number(workspace.file_count || 0).toLocaleString()}</dd></div>
       <div><dt>Folders</dt><dd>${Number(workspace.folder_count || 0).toLocaleString()}</dd></div>
     </dl>
     <div class="workspace-card-meter" data-state="${workspaceStorageState(workspaceStoragePercent(workspace))}"><span style="width:${Math.min(100,workspaceStoragePercent(workspace)||0)}%"></span></div>
     ${isSuspended ? `<p class="workspace-suspension-note"><strong>Suspended</strong>${workspace.suspension_reason ? ` — ${escapeWorkspaceHtml(workspace.suspension_reason)}` : ""}</p>` : ""}
+    ${workspace.lifecycle_notice ? `<p class="workspace-suspension-note"><strong>Lifecycle notice</strong> — ${escapeWorkspaceHtml(workspace.lifecycle_notice)}</p>` : ""}
     <div class="workspace-admin-actions">
       <button type="button" class="workspace-storage-btn">Storage details</button>
       ${canManage ? '<button type="button" class="workspace-members-btn">Members</button>' : ""}
+      ${workspace.is_main && isOwner ? `<button type="button" class="workspace-visibility-btn">${mainOffline ? "Bring drive online" : "Hide drive"}</button>` : ""}
+      ${!workspace.is_main && canManage ? `<button type="button" class="workspace-drive-state-btn">${branchOffline ? "Bring drive online" : "Take drive offline"}</button>` : ""}
       ${!workspace.is_main && canManage ? '<button type="button" class="workspace-edit-btn">Settings</button>' : ""}
     </div>
     <div class="workspace-admin-detail hidden"></div>`;
@@ -385,6 +423,25 @@ function buildWorkspaceAdminCard(workspace) {
   });
   card.querySelector(".workspace-storage-btn")?.addEventListener("click", () => showWorkspaceStorage(workspace, card));
   card.querySelector(".workspace-members-btn")?.addEventListener("click", () => showWorkspaceMembers(workspace, card));
+  card.querySelector(".workspace-visibility-btn")?.addEventListener("click", async () => {
+    try {
+      await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/visibility`, {
+        method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({visible:mainOffline}),
+      });
+      await loadOrbitWorkspaces(workspace.id);
+    } catch (error) { alert(error.message); }
+  });
+  card.querySelector(".workspace-drive-state-btn")?.addEventListener("click", async () => {
+    const nextOnline = branchOffline;
+    const action = nextOnline ? "bring this drive online" : "take this drive offline and release its quota allocation";
+    if(!confirm(`Are you sure you want to ${action}?`)) return;
+    try {
+      await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/drive-state`, {
+        method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({online:nextOnline}),
+      });
+      await loadOrbitWorkspaces(workspace.id);
+    } catch(error){ alert(error.message); }
+  });
   card.querySelector(".workspace-edit-btn")?.addEventListener("click", () => showWorkspaceSettings(workspace, card));
   return card;
 }

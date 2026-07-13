@@ -85,6 +85,15 @@ async function ensureWorkspaceSettings(client) {
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trash_limit_bytes bigint NOT NULL DEFAULT 209715200`);
   await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email text`);
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_visible boolean NOT NULL DEFAULT true`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS drive_state text NOT NULL DEFAULT 'online' CHECK(drive_state IN ('online','offline'))`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_activity_at timestamptz NOT NULL DEFAULT now()`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS offline_at timestamptz`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS deletion_due_at timestamptz`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS lifecycle_notice text`);
+  await client.query(`INSERT INTO system_settings(setting_key,setting_value) VALUES
+    ('workspace_inactive_days','30'::jsonb),('workspace_offline_warning_days','7'::jsonb),
+    ('workspace_delete_after_offline_days','30'::jsonb),('workspace_delete_warning_days','7'::jsonb)
+    ON CONFLICT(setting_key) DO NOTHING`);
   await client.query(`CREATE TABLE IF NOT EXISTS workspace_transfer_requests(
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

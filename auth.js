@@ -1,4 +1,4 @@
-﻿import crypto from "crypto";
+import crypto from "crypto";
 import { query } from "./db.js";
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -68,16 +68,16 @@ export async function listUsers() {
   return result.rows;
 }
 
-export async function upsertUser(username, pin, role) {
+export async function upsertUser(username, pin, role, email = null) {
   const normalized = String(username || "").trim().toLowerCase();
   if (!normalized) throw new Error("Username required");
   if (!/^\d{4,6}$/.test(pin || "")) throw new Error("PIN must be 4-6 digits");
   const { salt, hash } = hashPin(pin);
   await query(
-    `INSERT INTO users(username,pin_salt,pin_hash,role,status)
-     VALUES($1,$2,$3,$4,'active')
-     ON CONFLICT(username) DO UPDATE SET pin_salt=EXCLUDED.pin_salt,pin_hash=EXCLUDED.pin_hash,role=EXCLUDED.role,status='active',updated_at=now()`,
-    [normalized, salt, hash, role === "admin" ? "admin" : "user"]
+    `INSERT INTO users(username,pin_salt,pin_hash,role,status,email)
+     VALUES($1,$2,$3,$4,'active',$5)
+     ON CONFLICT(username) DO UPDATE SET pin_salt=EXCLUDED.pin_salt,pin_hash=EXCLUDED.pin_hash,role=EXCLUDED.role,status='active',email=EXCLUDED.email,updated_at=now()`,
+    [normalized, salt, hash, role === "admin" ? "admin" : "user", String(email || "").trim() || null]
   );
 }
 
@@ -99,3 +99,30 @@ export async function replaceAllUsers(newUsers) {
   }
 }
 
+
+
+export async function getUserProfile(userId) {
+  const result = await query(`
+    SELECT u.id,u.username,u.email,u.role,u.status,u.created_at,u.updated_at,
+      (SELECT count(*)::int FROM workspaces w WHERE w.owner_id=u.id AND w.status<>'archived') AS owned_workspaces,
+      (SELECT count(*)::int FROM workspace_members wm WHERE wm.user_id=u.id) AS workspace_memberships,
+      (SELECT count(*)::int FROM sessions s WHERE s.user_id=u.id AND s.expires_at>now()) AS active_sessions
+    FROM users u WHERE u.id=$1 LIMIT 1`,[userId]);
+  return result.rows[0] || null;
+}
+
+export async function updateUserProfile(userId,{email,pin}) {
+  const fields=[]; const values=[];
+  const add=(column,value)=>{values.push(value);fields.push(`${column}=$${values.length}`);};
+  if(email!==undefined){
+    const value=String(email||"").trim();
+    if(value && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) throw new Error("Invalid email address");
+    add("email",value||null);
+  }
+  if(pin!==undefined && pin!==""){
+    if(!/^\d{4,10}$/.test(String(pin))) throw new Error("PIN must be 4-10 digits");
+    const {salt,hash}=hashPin(String(pin)); add("pin_salt",salt); add("pin_hash",hash);
+  }
+  if(fields.length){values.push(userId);await query(`UPDATE users SET ${fields.join(",")},updated_at=now() WHERE id=$${values.length}`,values);}
+  return getUserProfile(userId);
+}

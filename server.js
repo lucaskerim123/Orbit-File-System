@@ -8,11 +8,12 @@ import { execFile, spawn } from "child_process";
 import { Readable } from "stream";
 import { makeHiveClient } from "./hive-client.js";
 import { resolveLocalHiveRoot, makeLocalOps } from "./local-hive-ops.js";
-import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser, removeUser } from "./auth.js";
+import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser, removeUser, getUserProfile, updateUserProfile } from "./auth.js";
 import { canAccessPath, permissionsForPath, filterEntriesForRole, listPermissions, setPermission, clearPermission, normalizeFilePath } from "./permissions.js";
 import { needsSetup, runSetup, tryStartHiveServer } from "./setup.js";
 import { workspaceRouter } from "./workspace-routes.js";
 import { beginDownload } from "./download-limits.js";
+import { evaluateWorkspaceLifecycle } from "./workspaces.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
@@ -200,8 +201,12 @@ app.use("/api", (req, res, next) => {
 
 app.get("/api/status", async (req, res) => {
   const hiveOk = await hive.ping();
+  const sorterInstalled = fsSync.existsSync(SORTER_DIR);
+  const sorterPort = sorterInstalled ? await resolveSorterPort() : null;
+  const sorterOk = sorterInstalled && await sorterOnline(sorterPort || 0);
   res.json({
     hive: { ok: hiveOk, url: hive.baseUrl },
+    sorter: { installed: sorterInstalled, ok: sorterOk, port: sorterPort },
     localFallback: { available: !!localOps, active: !hiveOk && !!localOps },
     checkedAt: new Date().toISOString(),
   });
@@ -893,6 +898,15 @@ app.get("/api/system/oauth", async (req, res) => {
 
 // --- User management (admin only) ---------------------------------------
 
+app.get("/api/me", async (req,res) => {
+  try { res.json({ user:await getUserProfile(req.userId) }); }
+  catch(error) { res.status(400).json({error:error.message}); }
+});
+app.patch("/api/me", express.json(), async (req,res) => {
+  try { res.json({ user:await updateUserProfile(req.userId,req.body||{}) }); }
+  catch(error) { res.status(400).json({error:error.message}); }
+});
+
 app.get("/api/users", requireAdmin, async (req, res) => {
   try {
     res.json({ users: await listUsers() });
@@ -902,9 +916,9 @@ app.get("/api/users", requireAdmin, async (req, res) => {
 });
 
 app.post("/api/users", requireAdmin, express.json(), async (req, res) => {
-  const { username, pin, role } = req.body || {};
+  const { username, pin, role, email } = req.body || {};
   try {
-    await upsertUser(username, pin, role);
+    await upsertUser(username, pin, role, email);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -949,6 +963,8 @@ app.use(
 // Only the sorter auto-ports (it owns updating the cloudflared ingress).
 app.listen(PORT, () => {
   logEvent("panel.powershell.command", { command: POWERSHELL_CMD });
+  evaluateWorkspaceLifecycle().catch((error)=>logError("workspace.lifecycle.error",error));
+  setInterval(()=>evaluateWorkspaceLifecycle().catch((error)=>logError("workspace.lifecycle.error",error)),60*60*1000).unref();
   logEvent("panel.server.start", {
     port: PORT,
     panelServiceName: PANEL_SERVICE_NAME,

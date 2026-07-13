@@ -26,6 +26,8 @@ export async function listUserWorkspaces(userId, systemRole) {
     `SELECT w.id,w.slug,w.name,w.description,w.status,w.storage_quota_mode,w.storage_quota_bytes,
             w.storage_used_bytes,w.filesystem_root,w.is_main,w.owner_id,w.suspension_reason,
             w.storage_last_scanned_at,w.file_count,w.folder_count,w.trash_used_bytes,w.trash_limit_bytes,w.is_visible,
+            w.drive_state,w.last_activity_at,w.offline_at,w.deletion_due_at,w.lifecycle_notice,
+            CASE WHEN w.is_main OR w.drive_state='offline' THEN 0 ELSE COALESCE(w.storage_quota_bytes,0) END AS allocated_bytes,
             CASE WHEN w.owner_id=$1 THEN 'owner' ELSE wm.permission END AS permission,
             u.username AS owner_username
      FROM workspaces w
@@ -313,4 +315,82 @@ export async function setMainWorkspaceVisibility(workspaceId, visible, actorId) 
   if (String(workspace.owner_id) !== String(actorId)) throw new Error("Only the Main Workspace owner can change drive visibility");
   await query("UPDATE workspaces SET is_visible=$2,updated_at=now() WHERE id=$1",[workspaceId,!!visible]);
   return getWorkspaceForUser(workspaceId,actorId,"admin");
+}
+
+
+const LIFECYCLE_DEFAULTS = {
+  inactiveDays:30, offlineWarningDays:7, deleteAfterOfflineDays:30, deleteWarningDays:7,
+};
+
+export async function getWorkspaceLifecycleSettings() {
+  const keys = ['workspace_inactive_days','workspace_offline_warning_days','workspace_delete_after_offline_days','workspace_delete_warning_days'];
+  const result = await query(`SELECT setting_key,setting_value FROM system_settings WHERE setting_key=ANY($1)`,[keys]);
+  const values = Object.fromEntries(result.rows.map(row=>[row.setting_key,Number(row.setting_value)]));
+  return {
+    inactiveDays:values.workspace_inactive_days ?? 30,
+    offlineWarningDays:values.workspace_offline_warning_days ?? 7,
+    deleteAfterOfflineDays:values.workspace_delete_after_offline_days ?? 30,
+    deleteWarningDays:values.workspace_delete_warning_days ?? 7,
+  };
+}
+
+export async function setWorkspaceLifecycleSettings(changes) {
+  const names={inactiveDays:'workspace_inactive_days',offlineWarningDays:'workspace_offline_warning_days',deleteAfterOfflineDays:'workspace_delete_after_offline_days',deleteWarningDays:'workspace_delete_warning_days'};
+  for (const [key,setting] of Object.entries(names)) {
+    if (changes[key] === undefined) continue;
+    const value=Number(changes[key]);
+    if(!Number.isInteger(value)||value<1||value>3650) throw new Error(`${key} must be 1-3650 days`);
+    await query(`INSERT INTO system_settings(setting_key,setting_value,updated_at) VALUES($1,$2::jsonb,now()) ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value,updated_at=now()`,[setting,JSON.stringify(value)]);
+  }
+  return getWorkspaceLifecycleSettings();
+}
+
+export async function touchWorkspaceActivity(workspaceId) {
+  await query(`UPDATE workspaces SET last_activity_at=now(),lifecycle_notice=NULL,updated_at=now() WHERE id=$1 AND is_main=false`,[workspaceId]);
+}
+
+export async function setWorkspaceDriveState(workspaceId,online,actorId,systemRole) {
+  const workspace=await getWorkspaceForUser(workspaceId,actorId,systemRole);
+  if(!workspace) throw new Error('Workspace not found or access denied');
+  if(workspace.is_main) throw new Error('Use the Main Workspace visibility control');
+  if(systemRole!=='admin' && workspace.permission!=='owner') throw new Error('Owner access required');
+  const settings=await getWorkspaceLifecycleSettings();
+  if(online){
+    await query(`UPDATE workspaces SET drive_state='online',offline_at=NULL,deletion_due_at=NULL,lifecycle_notice=NULL,last_activity_at=now(),updated_at=now() WHERE id=$1`,[workspaceId]);
+  } else {
+    await query(`UPDATE workspaces SET drive_state='offline',offline_at=now(),deletion_due_at=now()+($2||' days')::interval,lifecycle_notice=$3,updated_at=now() WHERE id=$1`,[workspaceId,String(settings.deleteAfterOfflineDays),`Drive offline. Scheduled for deletion after ${settings.deleteAfterOfflineDays} days offline.`]);
+  }
+  return getWorkspaceForUser(workspaceId,actorId,systemRole);
+}
+
+
+export async function evaluateWorkspaceLifecycle() {
+  const settings=await getWorkspaceLifecycleSettings();
+  const rows=(await query(`SELECT * FROM workspaces WHERE is_main=false AND status<>'archived'`)).rows;
+  const now=Date.now();
+  const deleted=[];
+  for(const workspace of rows){
+    if(workspace.status==='suspended') continue;
+    if(workspace.drive_state==='online'){
+      const inactiveDays=(now-new Date(workspace.last_activity_at||workspace.created_at).getTime())/86400000;
+      const remaining=settings.inactiveDays-inactiveDays;
+      if(remaining<=0){
+        await query(`UPDATE workspaces SET drive_state='offline',offline_at=now(),deletion_due_at=now()+($2||' days')::interval,lifecycle_notice=$3,updated_at=now() WHERE id=$1`,[workspace.id,String(settings.deleteAfterOfflineDays),`Automatically offline after ${settings.inactiveDays} days without activity. Scheduled for deletion after ${settings.deleteAfterOfflineDays} days offline.`]);
+      } else if(remaining<=settings.offlineWarningDays){
+        await query(`UPDATE workspaces SET lifecycle_notice=$2,updated_at=now() WHERE id=$1`,[workspace.id,`Warning: drive will go offline in ${Math.max(1,Math.ceil(remaining))} day(s) without activity.`]);
+      }
+      continue;
+    }
+    const due=workspace.deletion_due_at ? new Date(workspace.deletion_due_at).getTime() : now+settings.deleteAfterOfflineDays*86400000;
+    const remaining=(due-now)/86400000;
+    if(remaining<=0){
+      const root=workspace.filesystem_root ? path.resolve(workspace.filesystem_root) : null;
+      await query(`DELETE FROM workspaces WHERE id=$1`,[workspace.id]);
+      if(root) await fs.rm(root,{recursive:true,force:true}).catch(()=>{});
+      deleted.push(workspace.id);
+    } else if(remaining<=settings.deleteWarningDays){
+      await query(`UPDATE workspaces SET lifecycle_notice=$2,updated_at=now() WHERE id=$1`,[workspace.id,`Final warning: workspace will be deleted in ${Math.max(1,Math.ceil(remaining))} day(s). Bring it online to cancel deletion.`]);
+    }
+  }
+  return {checked:rows.length,deleted};
 }
