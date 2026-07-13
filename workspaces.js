@@ -144,9 +144,11 @@ export async function updateWorkspace(workspaceId, changes, actorId, systemRole)
   if (changes.status !== undefined && !workspace.is_main && systemRole === "admin") {
     if (!["active", "suspended", "archived"].includes(changes.status)) throw new Error("Invalid workspace status");
     add("status", changes.status);
-    if (changes.status !== "suspended") add("suspension_reason", null);
-  }
-  if (systemRole === "admin" && changes.suspensionReason !== undefined && !workspace.is_main) {
+    const reason = changes.status === "suspended"
+      ? String(changes.suspensionReason || "").trim().slice(0, 500) || null
+      : null;
+    add("suspension_reason", reason);
+  } else if (systemRole === "admin" && changes.suspensionReason !== undefined && !workspace.is_main) {
     add("suspension_reason", String(changes.suspensionReason || "").trim().slice(0, 500) || null);
   }
   if (systemRole === "admin" && changes.storageQuotaBytes !== undefined && !workspace.is_main) {
