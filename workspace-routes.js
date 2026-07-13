@@ -32,6 +32,9 @@ async function branched(req, res, next) {
   try {
     const workspace = await selectedWorkspace(req);
     if (workspace.is_main) return next("router");
+    if (workspace.status === "suspended" && req.role !== "admin") {
+      return res.status(423).json({ error:"Workspace suspended", suspended:true, reason:workspace.suspension_reason || null });
+    }
     req.workspace = await refreshWorkspaceUsage(workspace);
     req.workspaceOps = makeLocalOps(req.workspace.filesystem_root);
     req.workspacePermissions = permissions(req.workspace, req.role);

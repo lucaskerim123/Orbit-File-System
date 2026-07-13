@@ -24,13 +24,13 @@ async function uniqueSlug(base) {
 export async function listUserWorkspaces(userId, systemRole) {
   const result = await query(
     `SELECT w.id,w.slug,w.name,w.description,w.status,w.storage_quota_mode,w.storage_quota_bytes,
-            w.storage_used_bytes,w.filesystem_root,w.is_main,w.owner_id,
+            w.storage_used_bytes,w.filesystem_root,w.is_main,w.owner_id,w.suspension_reason,
             CASE WHEN w.owner_id=$1 THEN 'owner' ELSE wm.permission END AS permission,
             u.username AS owner_username
      FROM workspaces w
      LEFT JOIN workspace_members wm ON wm.workspace_id=w.id AND wm.user_id=$1
      LEFT JOIN users u ON u.id=w.owner_id
-     WHERE w.status='active' AND ($2='admin' OR w.owner_id=$1 OR wm.user_id=$1 OR w.is_main=true)
+     WHERE w.status IN ('active','suspended') AND ($2='admin' OR w.owner_id=$1 OR wm.user_id=$1 OR w.is_main=true)
      ORDER BY w.is_main DESC,w.name`, [userId, systemRole]
   );
   return result.rows;
@@ -42,7 +42,7 @@ export async function getWorkspaceForUser(workspaceId, userId, systemRole) {
      FROM workspaces w
      LEFT JOIN workspace_members wm ON wm.workspace_id=w.id AND wm.user_id=$2
      LEFT JOIN users u ON u.id=w.owner_id
-     WHERE w.id=$1 AND w.status='active' AND ($3='admin' OR w.owner_id=$2 OR wm.user_id=$2 OR w.is_main=true)
+     WHERE w.id=$1 AND w.status IN ('active','suspended') AND ($3='admin' OR w.owner_id=$2 OR wm.user_id=$2 OR w.is_main=true)
      LIMIT 1`, [workspaceId, userId, systemRole]
   );
   return result.rows[0] || null;
@@ -141,10 +141,13 @@ export async function updateWorkspace(workspaceId, changes, actorId, systemRole)
   const add = (column, value) => { values.push(value); fields.push(`${column}=$${values.length}`); };
   if (changes.name !== undefined && !workspace.is_main) add("name", cleanName(changes.name));
   if (changes.description !== undefined) add("description", String(changes.description || "").trim().slice(0, 500));
-  if (changes.status !== undefined && !workspace.is_main) {
-    if (systemRole !== "admin") throw new Error("Only admins can change workspace status");
+  if (changes.status !== undefined && !workspace.is_main && systemRole === "admin") {
     if (!["active", "suspended", "archived"].includes(changes.status)) throw new Error("Invalid workspace status");
     add("status", changes.status);
+    if (changes.status !== "suspended") add("suspension_reason", null);
+  }
+  if (systemRole === "admin" && changes.suspensionReason !== undefined && !workspace.is_main) {
+    add("suspension_reason", String(changes.suspensionReason || "").trim().slice(0, 500) || null);
   }
   if (systemRole === "admin" && changes.storageQuotaBytes !== undefined && !workspace.is_main) {
     const quota = Number(changes.storageQuotaBytes);

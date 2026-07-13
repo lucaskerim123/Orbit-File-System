@@ -153,3 +153,26 @@
   .workspace-invite-row > div { width: 100%; }
   .workspace-invite-row button { flex: 1; }
 }
+
+.workspace-admin-card.workspace-suspended {
+  border-color: #b7791f;
+  opacity: 0.92;
+}
+.workspace-admin-card.workspace-suspended .workspace-admin-head span {
+  color: #d69e2e;
+  font-weight: 700;
+}
+.workspace-suspension-note {
+  margin: 0.65rem 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #b7791f;
+  border-radius: 8px;
+  background: rgba(183, 121, 31, 0.12);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+.workspace-suspension-note strong { color: #d69e2e; }
+.workspace-open-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

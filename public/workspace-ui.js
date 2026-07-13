@@ -75,7 +75,8 @@ function renderWorkspaceBar() {
   for (const workspace of state.workspaces) {
     const option = document.createElement("option");
     option.value = workspace.id;
-    option.textContent = workspace.is_main ? `Main Workspace — ${workspace.name}` : workspace.name;
+    option.textContent = workspace.is_main ? `Main Workspace — ${workspace.name}` : `${workspace.name}${workspace.status === "suspended" ? " — Suspended" : ""}`;
+    option.disabled = workspace.status === "suspended" && state.role !== "admin";
     select.appendChild(option);
   }
   select.value = state.workspaceId;
@@ -312,12 +313,14 @@ function renderWorkspaceAdmin() {
 
 function buildWorkspaceAdminCard(workspace) {
   const canManage = state.role === "admin" || workspace.permission === "owner";
+  const isSuspended = workspace.status === "suspended";
+  const canOpen = !isSuspended || state.role === "admin";
   const card = document.createElement("article");
-  card.className = "workspace-admin-card";
+  card.className = `workspace-admin-card${isSuspended ? " workspace-suspended" : ""}`;
   card.innerHTML = `
     <div class="workspace-admin-head">
       <div><strong>${escapeWorkspaceHtml(workspace.name)}</strong><span>${workspace.is_main ? "Main Workspace" : escapeWorkspaceHtml(workspace.status)}</span></div>
-      <button type="button" class="workspace-open-btn">Open</button>
+      <button type="button" class="workspace-open-btn" ${canOpen ? "" : "disabled"}>${isSuspended && state.role !== "admin" ? "Suspended" : "Open"}</button>
     </div>
     <dl>
       <div><dt>Owner</dt><dd>${escapeWorkspaceHtml(workspace.owner_username || "—")}</dd></div>
@@ -325,6 +328,7 @@ function buildWorkspaceAdminCard(workspace) {
       <div><dt>Storage</dt><dd>${escapeWorkspaceHtml(workspaceQuotaText(workspace))}</dd></div>
       <div><dt>Root</dt><dd>${escapeWorkspaceHtml(workspace.filesystem_root || "—")}</dd></div>
     </dl>
+    ${isSuspended ? `<p class="workspace-suspension-note"><strong>Suspended</strong>${workspace.suspension_reason ? ` — ${escapeWorkspaceHtml(workspace.suspension_reason)}` : ""}</p>` : ""}
     <div class="workspace-admin-actions">
       ${canManage ? '<button type="button" class="workspace-members-btn">Members</button>' : ""}
       ${!workspace.is_main && canManage ? '<button type="button" class="workspace-edit-btn">Settings</button>' : ""}
@@ -450,7 +454,8 @@ function showWorkspaceSettings(workspace, card) {
       <label>Description<textarea name="description" rows="3">${escapeWorkspaceHtml(workspace.description || "")}</textarea></label>
       ${isAdmin ? `<label>Quota bytes<input name="quota" type="number" min="0" step="1048576" value="${Number(workspace.storage_quota_bytes || 0)}" /></label>
       <label>Filesystem root<input name="root" type="text" value="${escapeWorkspaceHtml(workspace.filesystem_root || "")}" /></label>
-      <label>Status<select name="status"><option value="active">Active</option><option value="suspended">Suspended</option><option value="archived">Archived</option></select></label>` : ""}
+      <label>Status<select name="status"><option value="active">Active</option><option value="suspended">Suspended</option><option value="archived">Archived</option></select></label>
+      <label>Suspension reason<textarea name="suspensionReason" rows="3" maxlength="500">${escapeWorkspaceHtml(workspace.suspension_reason || "")}</textarea></label>` : ""}
       <button type="submit" class="primary">Save</button>
       <button type="button" class="danger workspace-delete-btn">Delete workspace</button>
     </form>
@@ -465,6 +470,7 @@ function showWorkspaceSettings(workspace, card) {
       body.storageQuotaBytes = Number(form.elements.quota.value || 0);
       body.filesystemRoot = form.elements.root.value.trim();
       body.status = form.elements.status.value;
+      body.suspensionReason = form.elements.suspensionReason.value.trim();
     }
     try {
       await api(`/api/workspaces/${encodeURIComponent(workspace.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

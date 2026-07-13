@@ -77,6 +77,7 @@ async function migratePermissions(client, workspaceId) {
 }
 
 async function ensureWorkspaceSettings(client) {
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS suspension_reason text`);
   await client.query(`INSERT INTO system_settings(setting_key,setting_value) VALUES('max_workspaces_per_user','1'::jsonb) ON CONFLICT(setting_key) DO NOTHING`);
 }
 
