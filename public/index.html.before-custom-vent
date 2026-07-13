@@ -415,8 +415,6 @@
             <label class="field-label">Low</label><textarea id="startup-files-low" rows="3" placeholder="One Hive-relative file per line"></textarea>
             <label class="field-label">Medium</label><textarea id="startup-files-medium" rows="5" placeholder="One Hive-relative file per line"></textarea>
             <label class="field-label">High</label><textarea id="startup-files-high" rows="7" placeholder="One Hive-relative file per line"></textarea>
-            <label class="field-label">Custom 1</label><textarea id="startup-files-custom1" rows="5" placeholder="One Hive-relative file per line"></textarea>
-            <label class="field-label">Custom 2</label><textarea id="startup-files-custom2" rows="5" placeholder="One Hive-relative file per line"></textarea>
             <button type="submit" class="primary">Save load presets</button>
             <p id="startup-config-message" class="muted-text"></p>
           </form>

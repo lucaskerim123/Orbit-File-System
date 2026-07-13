@@ -2,7 +2,7 @@
   if (window.__orbitStartupPickerLoaded) return;
   window.__orbitStartupPickerLoaded = true;
 
-  const levels = ["low", "medium", "high", "custom1", "custom2"];
+  const levels = ["low", "medium", "high"];
   const blockedParts = new Set(["archive", "archives", "_trash"]);
   let currentLevel = "medium";
   let currentPath = "";
@@ -22,7 +22,7 @@
     const style = document.createElement("style");
     style.textContent = `
       .startup-picker-shell{display:grid;gap:12px;margin-top:12px}
-      .startup-level-tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+      .startup-level-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
       .startup-level-tabs button{min-height:44px;font-weight:700}
       .startup-level-tabs button.active{background:var(--accent,#5b8cff);color:#fff;border-color:transparent}
       .startup-selection-list{display:grid;gap:7px;min-height:52px}
@@ -39,7 +39,7 @@
       .startup-browser-name{min-width:0;overflow-wrap:anywhere;text-align:left;background:none;border:0;padding:4px;color:inherit}
       .startup-empty{padding:16px;text-align:center;color:var(--muted,#9aa3b2)}
       .startup-picker-note{font-size:12px}
-      #startup-files-low,#startup-files-medium,#startup-files-high,#startup-files-custom1,#startup-files-custom2,.startup-config-legacy-label{display:none!important}
+      #startup-files-low,#startup-files-medium,#startup-files-high,.startup-config-legacy-label{display:none!important}
       @media(max-width:620px){.startup-browser-toolbar{grid-template-columns:auto 1fr}.startup-browser-toolbar button:last-child{grid-column:1/-1}.startup-selection-row{grid-template-columns:auto 1fr auto}.startup-browser-list{max-height:55vh}}
     `;
     document.head.appendChild(style);
@@ -151,7 +151,7 @@
     const form = document.getElementById("startup-config-form");
     if (!form || document.getElementById("startup-picker-shell")) return;
     form.querySelectorAll("label.field-label").forEach((label) => {
-      if (["Low", "Medium", "High", "Custom 1", "Custom 2"].includes(label.textContent.trim())) label.classList.add("startup-config-legacy-label");
+      if (["Low", "Medium", "High"].includes(label.textContent.trim())) label.classList.add("startup-config-legacy-label");
     });
     const project = document.getElementById("startup-config-project");
     const shell = document.createElement("div");
@@ -162,8 +162,6 @@
         <button type="button" data-startup-level="low">Low</button>
         <button type="button" data-startup-level="medium" class="active">Medium</button>
         <button type="button" data-startup-level="high">High</button>
-        <button type="button" data-startup-level="custom1">Custom 1</button>
-        <button type="button" data-startup-level="custom2">Custom 2</button>
       </div>
       <div class="toolbar"><strong id="startup-selection-count">0 selected</strong><span class="spacer"></span><button type="button" id="startup-clear-level">Clear level</button></div>
       <div id="startup-selection-list" class="startup-selection-list"></div>
