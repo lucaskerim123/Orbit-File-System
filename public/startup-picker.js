@@ -204,3 +204,36 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", buildPicker, { once: true });
   else buildPicker();
 })();
+
+// System only shows total physical drive capacity. Workspace storage details stay in Workspace Manager.
+(() => {
+  function simplifySystemStorage() {
+    const summary = document.getElementById("disk-summary");
+    if (!summary) return;
+    const item = summary.closest(".infra-item");
+    const label = item?.querySelector("span:first-child");
+    if (label) label.textContent = "Total drive storage";
+    const bar = document.getElementById("disk-bar");
+    if (bar) bar.style.display = "none";
+
+    const updateTotal = async () => {
+      try {
+        const status = await api("/api/system/status");
+        const total = Number(status?.disk?.totalGB);
+        summary.textContent = Number.isFinite(total) ? `${total} GB total` : "Unavailable";
+      } catch {
+        summary.textContent = "Unavailable";
+      }
+    };
+    updateTotal();
+
+    const observer = new MutationObserver(() => {
+      const match = summary.textContent.match(/\(([^)]+)\s+total\)/i);
+      if (match) summary.textContent = `${match[1]} total`;
+    });
+    observer.observe(summary, { childList: true, characterData: true, subtree: true });
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", simplifySystemStorage, { once: true });
+  else simplifySystemStorage();
+})();
