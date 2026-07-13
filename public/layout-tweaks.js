@@ -33,7 +33,7 @@
     const forms = [...document.querySelectorAll('[id="startup-config-form"]')];
     if (!forms.length) return;
 
-    let keep = forms.find((form) => system.contains(form)) || forms[0];
+    const keep = forms.find((form) => system.contains(form)) || forms[0];
     const keepCard = keep.closest(".card, details, .sys-zone") || keep.parentElement;
 
     if (!system.contains(keepCard)) {
@@ -58,6 +58,39 @@
     }
   }
 
+  function removeWorkspaceStorageFromSystem() {
+    document.getElementById("workspace-system-storage")?.remove();
+    const system = document.getElementById("tab-system");
+    if (!system) return;
+    [...system.querySelectorAll("details.card, .card")].forEach((card) => {
+      const title = card.querySelector("summary, h2, h3, strong")?.textContent?.trim().toLowerCase();
+      if (title === "workspace storage") card.remove();
+    });
+  }
+
+  let diskRefreshRunning = false;
+  async function simplifyDiskStatus() {
+    const summary = document.getElementById("disk-summary");
+    if (!summary) return;
+    const item = summary.closest(".infra-item");
+    const label = item?.querySelector("span:first-child");
+    if (label) label.textContent = "Total drive storage";
+    document.getElementById("disk-bar")?.remove();
+
+    if (diskRefreshRunning) return;
+    diskRefreshRunning = true;
+    try {
+      const status = await api("/api/system/status");
+      const total = Number(status?.disk?.totalGB);
+      summary.textContent = Number.isFinite(total) ? `${total} GB total` : "Unavailable";
+    } catch {
+      const match = summary.textContent.match(/\(([^)]+)\s+total\)/i);
+      summary.textContent = match ? `${match[1]} total` : "Unavailable";
+    } finally {
+      diskRefreshRunning = false;
+    }
+  }
+
   function loadScriptOnce(src, marker) {
     if (document.querySelector(`script[${marker}="1"]`)) return;
     const script = document.createElement("script");
@@ -67,9 +100,15 @@
     document.body.appendChild(script);
   }
 
-  function install() {
+  function applySystemLayoutFixes() {
     groupSystemMonitorAndControls();
+    removeWorkspaceStorageFromSystem();
+    simplifyDiskStatus();
     keepSingleStartupControl();
+  }
+
+  function install() {
+    applySystemLayoutFixes();
     syncWorkspaceBarVisibility();
     loadScriptOnce("drive-upload.js", "data-orbit-drive-upload");
     loadScriptOnce("page-refresh.js", "data-orbit-page-refresh");
@@ -78,20 +117,21 @@
     document.querySelectorAll(".tab-btn").forEach((button) => {
       button.addEventListener("click", () => requestAnimationFrame(() => {
         syncWorkspaceBarVisibility();
-        keepSingleStartupControl();
+        applySystemLayoutFixes();
       }));
     });
 
     const observer = new MutationObserver(() => {
       syncWorkspaceBarVisibility();
-      groupSystemMonitorAndControls();
-      keepSingleStartupControl();
+      applySystemLayoutFixes();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
     const style = document.createElement("style");
     style.textContent = `
       #workspace-bar.hidden{display:none!important}
+      #workspace-system-storage{display:none!important}
+      #disk-bar{display:none!important}
       .sys-zone-telemetry>.system-server-controls-inline{margin-top:12px}
       .sys-zone-controls:empty{display:none}
       #tab-admin [id="startup-config-form"],#tab-admin [id="startup-picker-shell"],#tab-admin [id="startup-picker"]{display:none!important}
