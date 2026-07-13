@@ -11,3 +11,4 @@ logs/master-brain-panel-events.jsonl
 logs/master-brain-panel-errors.jsonl
 logs/master-brain-panel-events.jsonl
 /logs
+runtime/remote-desktop-commander-task/logs/remote-desktop-commander.txt
