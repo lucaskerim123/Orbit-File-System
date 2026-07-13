@@ -8,100 +8,47 @@
 
   function syncWorkspaceBarVisibility() {
     const bar = document.getElementById("workspace-bar");
-    if (!bar) return;
-    bar.classList.toggle("hidden", activeTabName() !== "files");
+    if (bar) bar.classList.toggle("hidden", activeTabName() !== "files");
   }
 
   function groupSystemMonitorAndControls() {
     const system = document.getElementById("tab-system");
-    const telemetryZone = system?.querySelector(".sys-zone-telemetry");
-    const controlsZone = system?.querySelector(".sys-zone-controls");
-    if (!telemetryZone || !controlsZone) return;
-
-    const serverControls = [...controlsZone.querySelectorAll("details.card")]
-      .find((card) => card.querySelector("summary")?.textContent.trim() === "Server controls");
-    if (!serverControls) return;
-
-    serverControls.classList.add("system-server-controls-inline");
-    telemetryZone.appendChild(serverControls);
-  }
-
-  function startupCardTitle(card) {
-    return card?.querySelector("summary, h2, h3")?.textContent?.trim().toLowerCase() || "";
-  }
-
-  function keepSingleStartupControl() {
-    const system = document.getElementById("tab-system");
-    if (!system) return;
-
-    const startupCards = [...document.querySelectorAll("details.card, article.card, section.card, .card")]
-      .filter((card) => {
-        const title = startupCardTitle(card);
-        return title === "startup load control" || title === "startup loading";
-      });
-
-    const keepCard = startupCards.find((card) => startupCardTitle(card) === "startup load control")
-      || document.getElementById("startup-config-form")?.closest("details.card, article.card, section.card, .card");
-
-    if (keepCard && !system.contains(keepCard)) {
-      const controlsZone = system.querySelector(".sys-zone-controls") || system;
-      controlsZone.appendChild(keepCard);
-    }
-
-    for (const card of startupCards) {
-      if (card !== keepCard && startupCardTitle(card) === "startup loading") card.remove();
-    }
-
-    const forms = [...document.querySelectorAll('[id="startup-config-form"]')];
-    const keepForm = keepCard?.querySelector('[id="startup-config-form"]') || forms[0];
-    for (const form of forms) {
-      if (form === keepForm) continue;
-      const duplicateCard = form.closest("details.card, article.card, section.card, .card") || form.parentElement;
-      duplicateCard?.remove();
-    }
-
-    const pickers = [...document.querySelectorAll('[id="startup-picker-shell"], [id="startup-picker"]')];
-    let keptPicker = null;
-    for (const picker of pickers) {
-      if (keepCard?.contains(picker) && !keptPicker) {
-        keptPicker = picker;
-        continue;
-      }
-      if (picker !== keptPicker) picker.remove();
+    const telemetry = system?.querySelector(".sys-zone-telemetry");
+    const controls = system?.querySelector(".sys-zone-controls");
+    if (!telemetry || !controls) return;
+    const card = [...controls.querySelectorAll("details.card")]
+      .find((item) => item.querySelector("summary")?.textContent.trim() === "Server controls");
+    if (card && card.parentElement !== telemetry) {
+      card.classList.add("system-server-controls-inline");
+      telemetry.appendChild(card);
     }
   }
 
-  function removeWorkspaceStorageFromSystem() {
-    document.getElementById("workspace-system-storage")?.remove();
-    const system = document.getElementById("tab-system");
-    if (!system) return;
-    [...system.querySelectorAll("details.card, .card")].forEach((card) => {
-      const title = card.querySelector("summary, h2, h3, strong")?.textContent?.trim().toLowerCase();
-      if (title === "workspace storage") card.remove();
+  function removeStartupLoading() {
+    [...document.querySelectorAll("details.card,article.card,section.card,.card")].forEach((card) => {
+      const title = card.querySelector("summary,h2,h3")?.textContent?.trim().toLowerCase();
+      if (title === "startup loading") card.remove();
     });
   }
 
-  let diskRefreshRunning = false;
-  async function simplifyDiskStatus() {
-    const summary = document.getElementById("disk-summary");
-    if (!summary) return;
-    const item = summary.closest(".infra-item");
-    const label = item?.querySelector("span:first-child");
-    if (label) label.textContent = "Total drive storage";
+  function removeWorkspaceStorage() {
+    document.getElementById("workspace-system-storage")?.remove();
+    const system = document.getElementById("tab-system");
+    if (!system) return;
+    [...system.querySelectorAll("details.card,.card")].forEach((card) => {
+      const title = card.querySelector("summary,h2,h3,strong")?.textContent?.trim().toLowerCase();
+      if (title === "workspace storage") card.remove();
+    });
     document.getElementById("disk-bar")?.remove();
+    const label = document.getElementById("disk-summary")?.closest(".infra-item")?.querySelector("span:first-child");
+    if (label) label.textContent = "Total drive storage";
+  }
 
-    if (diskRefreshRunning) return;
-    diskRefreshRunning = true;
-    try {
-      const status = await api("/api/system/status");
-      const total = Number(status?.disk?.totalGB);
-      summary.textContent = Number.isFinite(total) ? `${total} GB total` : "Unavailable";
-    } catch {
-      const match = summary.textContent.match(/\(([^)]+)\s+total\)/i);
-      summary.textContent = match ? `${match[1]} total` : "Unavailable";
-    } finally {
-      diskRefreshRunning = false;
-    }
+  function applyLayout() {
+    syncWorkspaceBarVisibility();
+    groupSystemMonitorAndControls();
+    removeStartupLoading();
+    removeWorkspaceStorage();
   }
 
   function loadScriptOnce(src, marker) {
@@ -113,39 +60,25 @@
     document.body.appendChild(script);
   }
 
-  function applySystemLayoutFixes() {
-    groupSystemMonitorAndControls();
-    removeWorkspaceStorageFromSystem();
-    simplifyDiskStatus();
-    keepSingleStartupControl();
-  }
-
   function install() {
-    applySystemLayoutFixes();
-    syncWorkspaceBarVisibility();
+    applyLayout();
     loadScriptOnce("drive-upload.js", "data-orbit-drive-upload");
     loadScriptOnce("page-refresh.js", "data-orbit-page-refresh");
     loadScriptOnce("workspace-extras.js", "data-orbit-workspace-extras");
     loadScriptOnce("tab-restrictions.js", "data-orbit-tab-restrictions");
 
     document.querySelectorAll(".tab-btn").forEach((button) => {
-      button.addEventListener("click", () => requestAnimationFrame(() => {
-        syncWorkspaceBarVisibility();
-        applySystemLayoutFixes();
-      }));
+      if (button.dataset.layoutWired) return;
+      button.dataset.layoutWired = "1";
+      button.addEventListener("click", () => requestAnimationFrame(applyLayout));
     });
 
-    const observer = new MutationObserver(() => {
-      syncWorkspaceBarVisibility();
-      applySystemLayoutFixes();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    document.getElementById("system-refresh-btn")?.addEventListener("click", () => setTimeout(applyLayout, 0));
 
     const style = document.createElement("style");
     style.textContent = `
       #workspace-bar.hidden{display:none!important}
-      #workspace-system-storage{display:none!important}
-      #disk-bar{display:none!important}
+      #workspace-system-storage,#disk-bar{display:none!important}
       .sys-zone-telemetry>.system-server-controls-inline{margin-top:12px}
       .sys-zone-controls:empty{display:none}
       #tab-admin [id="startup-config-form"],#tab-admin [id="startup-picker-shell"],#tab-admin [id="startup-picker"]{display:none!important}
