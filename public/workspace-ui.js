@@ -43,6 +43,30 @@ function workspaceFormatBytes(value) {
   return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[i]}`;
 }
 
+
+function workspaceStoragePercent(workspace) {
+  const quota = Number(workspace.storage_quota_bytes || 0);
+  if (!quota || workspace.storage_quota_mode === "unlimited") return null;
+  return Math.max(0, Number(workspace.storage_used_bytes || 0) / quota * 100);
+}
+
+function workspaceStorageState(percent) {
+  if (percent == null) return "unlimited";
+  if (percent >= 100) return "full";
+  if (percent >= 90) return "critical";
+  if (percent >= 75) return "warning";
+  return "normal";
+}
+
+function workspaceStorageSummary(workspace) {
+  const used = Number(workspace.storage_used_bytes || 0);
+  const quota = Number(workspace.storage_quota_bytes || 0);
+  if (!quota || workspace.storage_quota_mode === "unlimited") return `${workspaceFormatBytes(used)} used · Unlimited`;
+  const free = Math.max(0, quota - used);
+  const percent = workspaceStoragePercent(workspace);
+  return `${workspaceFormatBytes(used)} of ${workspaceFormatBytes(quota)} · ${workspaceFormatBytes(free)} free · ${percent.toFixed(1)}%`;
+}
+
 function currentWorkspace() {
   return state.workspaces.find((item) => String(item.id) === String(state.workspaceId))
     || state.workspaces.find((item) => item.is_main)
@@ -90,15 +114,10 @@ function renderWorkspaceBar() {
   document.getElementById("workspace-role").textContent = workspace.is_main ? "Main" : (workspace.permission || "viewer");
   const storage = document.getElementById("workspace-storage");
   const fill = document.getElementById("workspace-meter-fill");
-  if (workspace.storage_quota_mode === "unlimited" || workspace.storage_quota_bytes == null) {
-    storage.textContent = "Unlimited storage";
-    fill.style.width = "0%";
-  } else {
-    const used = Number(workspace.storage_used_bytes || 0);
-    const quota = Number(workspace.storage_quota_bytes || 0);
-    storage.textContent = `${workspaceFormatBytes(used)} of ${workspaceFormatBytes(quota)}`;
-    fill.style.width = `${quota ? Math.min(100, used / quota * 100) : 0}%`;
-  }
+  const percent = workspaceStoragePercent(workspace);
+  storage.textContent = workspaceStorageSummary(workspace);
+  fill.style.width = `${percent == null ? 0 : Math.min(100, percent)}%`;
+  fill.parentElement.dataset.state = workspaceStorageState(percent);
 }
 
 async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
@@ -115,6 +134,7 @@ async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
     if (state.workspaceId) localStorage.setItem("panelWorkspaceId", state.workspaceId);
     renderWorkspaceBar();
     renderWorkspaceAdmin();
+    renderAdminStorageOverview();
     loadWorkspaceInvitations();
   } catch (error) {
     const storage = document.getElementById("workspace-storage");
@@ -297,6 +317,26 @@ function workspaceQuotaText(workspace) {
   return `${workspaceFormatBytes(workspace.storage_used_bytes)} / ${workspaceFormatBytes(workspace.storage_quota_bytes)}`;
 }
 
+
+function renderAdminStorageOverview() {
+  if (state.role !== "admin") return;
+  const panel = document.getElementById("tab-system");
+  if (!panel) return;
+  let card = document.getElementById("workspace-system-storage");
+  if (!card) {
+    card = document.createElement("details");
+    card.id = "workspace-system-storage";
+    card.className = "card";
+    card.open = true;
+    const header = panel.querySelector(".sys-header");
+    if (header) header.insertAdjacentElement("afterend",card); else panel.prepend(card);
+  }
+  const total = state.workspaces.reduce((sum,w)=>sum+Number(w.storage_used_bytes||0),0);
+  const branched = state.workspaces.filter(w=>!w.is_main).reduce((sum,w)=>sum+Number(w.storage_used_bytes||0),0);
+  const rows = state.workspaces.map(w=>`<div class="workspace-system-storage-row"><strong>${escapeWorkspaceHtml(w.name)}</strong><span>${escapeWorkspaceHtml(w.owner_username||"—")}</span><span>${workspaceStorageSummary(w)}</span></div>`).join("");
+  card.innerHTML = `<summary>Workspace storage</summary><p class="muted-text">${workspaceFormatBytes(total)} tracked · ${workspaceFormatBytes(branched)} branched</p><div class="workspace-system-storage-list">${rows}</div>`;
+}
+
 function renderWorkspaceAdmin() {
   ensureWorkspaceAdmin();
   const list = document.getElementById("workspace-admin-list");
@@ -325,11 +365,15 @@ function buildWorkspaceAdminCard(workspace) {
     <dl>
       <div><dt>Owner</dt><dd>${escapeWorkspaceHtml(workspace.owner_username || "—")}</dd></div>
       <div><dt>Role</dt><dd>${escapeWorkspaceHtml(workspace.permission || "admin")}</dd></div>
-      <div><dt>Storage</dt><dd>${escapeWorkspaceHtml(workspaceQuotaText(workspace))}</dd></div>
-      <div><dt>Root</dt><dd>${escapeWorkspaceHtml(workspace.filesystem_root || "—")}</dd></div>
+      <div><dt>Storage</dt><dd>${escapeWorkspaceHtml(workspaceStorageSummary(workspace))}</dd></div>
+      <div><dt>Trash</dt><dd>${workspaceFormatBytes(workspace.trash_used_bytes || 0)} / ${workspaceFormatBytes(workspace.trash_limit_bytes || 209715200)}</dd></div>
+      <div><dt>Files</dt><dd>${Number(workspace.file_count || 0).toLocaleString()}</dd></div>
+      <div><dt>Folders</dt><dd>${Number(workspace.folder_count || 0).toLocaleString()}</dd></div>
     </dl>
+    <div class="workspace-card-meter" data-state="${workspaceStorageState(workspaceStoragePercent(workspace))}"><span style="width:${Math.min(100,workspaceStoragePercent(workspace)||0)}%"></span></div>
     ${isSuspended ? `<p class="workspace-suspension-note"><strong>Suspended</strong>${workspace.suspension_reason ? ` — ${escapeWorkspaceHtml(workspace.suspension_reason)}` : ""}</p>` : ""}
     <div class="workspace-admin-actions">
+      <button type="button" class="workspace-storage-btn">Storage details</button>
       ${canManage ? '<button type="button" class="workspace-members-btn">Members</button>' : ""}
       ${!workspace.is_main && canManage ? '<button type="button" class="workspace-edit-btn">Settings</button>' : ""}
     </div>
@@ -337,6 +381,7 @@ function buildWorkspaceAdminCard(workspace) {
   card.querySelector(".workspace-open-btn").addEventListener("click", () => {
     activateWorkspace(workspace.id);
   });
+  card.querySelector(".workspace-storage-btn")?.addEventListener("click", () => showWorkspaceStorage(workspace, card));
   card.querySelector(".workspace-members-btn")?.addEventListener("click", () => showWorkspaceMembers(workspace, card));
   card.querySelector(".workspace-edit-btn")?.addEventListener("click", () => showWorkspaceSettings(workspace, card));
   return card;
@@ -346,6 +391,38 @@ function escapeWorkspaceHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;",
   })[char]);
+}
+
+
+async function showWorkspaceStorage(workspace, card) {
+  const detail = card.querySelector(".workspace-admin-detail");
+  detail.classList.remove("hidden");
+  detail.innerHTML = "Refreshing storage…";
+  try {
+    const result = await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/storage?refresh=true`);
+    const updated = result.workspace;
+    const canEmpty = !updated.is_main && (state.role === "admin" || updated.permission === "owner");
+    detail.innerHTML = `<div class="workspace-storage-grid">
+      <div><span>Used</span><strong>${workspaceFormatBytes(updated.storage_used_bytes)}</strong></div>
+      <div><span>Quota</span><strong>${updated.storage_quota_mode === "unlimited" ? "Unlimited" : workspaceFormatBytes(updated.storage_quota_bytes)}</strong></div>
+      <div><span>Free</span><strong>${updated.storage_quota_mode === "unlimited" ? "—" : workspaceFormatBytes(Math.max(0,Number(updated.storage_quota_bytes||0)-Number(updated.storage_used_bytes||0)))}</strong></div>
+      <div><span>Files</span><strong>${Number(updated.file_count||0).toLocaleString()}</strong></div>
+      <div><span>Folders</span><strong>${Number(updated.folder_count||0).toLocaleString()}</strong></div>
+      <div><span>Trash</span><strong>${workspaceFormatBytes(updated.trash_used_bytes||0)}</strong></div>
+    </div>
+    <p class="muted-text">Last scanned: ${updated.storage_last_scanned_at ? new Date(updated.storage_last_scanned_at).toLocaleString() : "Not yet scanned"}</p>
+    <div class="workspace-storage-actions"><button type="button" class="workspace-refresh-storage">Refresh</button>${canEmpty ? '<button type="button" class="danger workspace-empty-trash">Empty trash</button>' : ""}</div>
+    <p class="error workspace-detail-error"></p>`;
+    detail.querySelector(".workspace-refresh-storage").addEventListener("click",()=>showWorkspaceStorage(updated,card));
+    detail.querySelector(".workspace-empty-trash")?.addEventListener("click",async()=>{
+      if(!confirm("Permanently empty this workspace trash?")) return;
+      try { await api(`/api/workspaces/${encodeURIComponent(updated.id)}/trash`,{method:"DELETE"}); await loadOrbitWorkspaces(updated.id); await showWorkspaceStorage(updated,card); }
+      catch(error){ detail.querySelector(".workspace-detail-error").textContent=error.message; }
+    });
+    const index=state.workspaces.findIndex(item=>String(item.id)===String(updated.id));
+    if(index>=0) state.workspaces[index]=updated;
+    renderWorkspaceBar();
+  } catch(error) { detail.innerHTML=`<p class="error">${escapeWorkspaceHtml(error.message)}</p>`; }
 }
 
 async function showWorkspaceMembers(workspace, card) {
@@ -452,7 +529,9 @@ function showWorkspaceSettings(workspace, card) {
     <form class="workspace-settings-form">
       <label>Name<input name="name" type="text" value="${escapeWorkspaceHtml(workspace.name)}" required /></label>
       <label>Description<textarea name="description" rows="3">${escapeWorkspaceHtml(workspace.description || "")}</textarea></label>
-      ${isAdmin ? `<label>Quota bytes<input name="quota" type="number" min="0" step="1048576" value="${Number(workspace.storage_quota_bytes || 0)}" /></label>
+      ${isAdmin ? `<label>Quota (GB)<input name="quotaGb" type="number" min="0" step="0.1" value="${(Number(workspace.storage_quota_bytes || 0)/1073741824).toFixed(2)}" /></label>
+      <label>Trash limit (MB)<input name="trashLimitMb" type="number" min="0" step="1" value="${Math.round(Number(workspace.trash_limit_bytes || 209715200)/1048576)}" /></label>
+      <label>Owner username<input name="ownerUsername" type="text" value="${escapeWorkspaceHtml(workspace.owner_username || "")}" /></label>
       <label>Filesystem root<input name="root" type="text" value="${escapeWorkspaceHtml(workspace.filesystem_root || "")}" /></label>
       <label>Status<select name="status"><option value="active">Active</option><option value="suspended">Suspended</option><option value="archived">Archived</option></select></label>
       <label>Suspension reason<textarea name="suspensionReason" rows="3" maxlength="500">${escapeWorkspaceHtml(workspace.suspension_reason || "")}</textarea></label>` : ""}
@@ -467,13 +546,17 @@ function showWorkspaceSettings(workspace, card) {
     const error = detail.querySelector(".workspace-detail-error");
     const body = { name: form.elements.name.value.trim(), description: form.elements.description.value.trim() };
     if (isAdmin) {
-      body.storageQuotaBytes = Number(form.elements.quota.value || 0);
+      body.storageQuotaBytes = Math.round(Number(form.elements.quotaGb.value || 0) * 1073741824);
+      body.trashLimitBytes = Math.round(Number(form.elements.trashLimitMb.value || 0) * 1048576);
       body.filesystemRoot = form.elements.root.value.trim();
       body.status = form.elements.status.value;
       body.suspensionReason = form.elements.suspensionReason.value.trim();
     }
     try {
       await api(`/api/workspaces/${encodeURIComponent(workspace.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (isAdmin && form.elements.ownerUsername.value.trim() && form.elements.ownerUsername.value.trim().toLowerCase() !== String(workspace.owner_username || "").toLowerCase()) {
+        await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/owner`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: form.elements.ownerUsername.value.trim() }) });
+      }
       await loadOrbitWorkspaces(workspace.id);
     } catch (err) { error.textContent = err.message; }
   });

@@ -4,9 +4,9 @@ import { makeLocalOps } from "./local-hive-ops.js";
 import { inviteWorkspaceUser,listPendingInvitations,listWorkspaceInvitations,respondToWorkspaceInvitation,revokeWorkspaceInvitation } from "./workspace-invitations.js";
 import {
   listUserWorkspaces, getWorkspaceForUser, createWorkspace, updateWorkspace, deleteWorkspace,
-  listWorkspaceMembers, setWorkspaceMember, removeWorkspaceMember,
+  listWorkspaceMembers, setWorkspaceMember, removeWorkspaceMember, transferWorkspaceOwner,
   getWorkspaceCreationSettings, setMaxWorkspacesPerUser, ownedWorkspaceCount,
-  refreshWorkspaceUsage, assertWorkspaceWrite, assertWorkspaceQuota,
+  refreshWorkspaceUsage, getWorkspaceStorage, assertWorkspaceWrite, assertWorkspaceQuota,
 } from "./workspaces.js";
 
 const FULL = { read:true,write:true,download:true,move:true,delete:true,create:true };
@@ -28,15 +28,25 @@ async function selectedWorkspace(req) {
   return workspace;
 }
 
+function assertNoTrashPath(req) {
+  const values = [req.query?.path,req.query?.subpath,req.body?.path,req.body?.from,req.body?.to];
+  for (const value of values) {
+    const clean = String(value || "").replace(/\\/g,"/").replace(/^\/+/,"");
+    if (clean === "_trash" || clean.startsWith("_trash/")) throw new Error("Workspace trash is managed automatically");
+  }
+}
+
 async function branched(req, res, next) {
   try {
     const workspace = await selectedWorkspace(req);
+    assertNoTrashPath(req);
     if (workspace.is_main) return next("router");
     if (workspace.status === "suspended" && req.role !== "admin") {
       return res.status(423).json({ error:"Workspace suspended", suspended:true, reason:workspace.suspension_reason || null });
     }
-    req.workspace = await refreshWorkspaceUsage(workspace);
+    req.workspace = workspace;
     req.workspaceOps = makeLocalOps(req.workspace.filesystem_root);
+    await req.workspaceOps.ensureTrash();
     req.workspacePermissions = permissions(req.workspace, req.role);
     next();
   } catch (error) { res.status(403).json({ error:error.message }); }
@@ -46,9 +56,7 @@ export function workspaceRouter() {
   const router = express.Router();
   router.get("/workspaces", async (req,res) => {
     try {
-      const rows = await listUserWorkspaces(req.userId,req.role);
-      const workspaces = [];
-      for (const row of rows) workspaces.push(row.is_main ? row : await refreshWorkspaceUsage(row));
+      const workspaces = await listUserWorkspaces(req.userId,req.role);
       const settings = await getWorkspaceCreationSettings();
       const ownedCount = await ownedWorkspaceCount(req.userId);
       res.json({ workspaces, settings, ownedCount });
@@ -92,6 +100,25 @@ export function workspaceRouter() {
   });
   router.patch("/workspaces/:id", express.json(), async (req,res) => {
     try { res.json({ workspace:await updateWorkspace(req.params.id,req.body||{},req.userId,req.role) }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.get("/workspaces/:id/storage", async (req,res) => {
+    try { res.json({ workspace:await getWorkspaceStorage(req.params.id,req.userId,req.role,req.query.refresh==="true") }); }
+    catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.delete("/workspaces/:id/trash", async (req,res) => {
+    try {
+      const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role);
+      if(!workspace) throw new Error("Workspace not found or access denied");
+      if(workspace.is_main) throw new Error("Main Workspace trash is managed by MCP");
+      if(req.role!=="admin" && workspace.permission!=="owner") throw new Error("Owner access required");
+      const ops=makeLocalOps(workspace.filesystem_root);
+      await ops.emptyTrash();
+      res.json({ok:true,workspace:await refreshWorkspaceUsage(workspace)});
+    } catch(error) { res.status(400).json({error:error.message}); }
+  });
+  router.patch("/workspaces/:id/owner", express.json(), async (req,res) => {
+    try { res.json({ workspace:await transferWorkspaceOwner(req.params.id,req.body?.username,req.userId,req.role) }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.delete("/workspaces/:id", async (req,res) => {
@@ -151,7 +178,12 @@ export function workspaceRouter() {
   });
   router.post("/trash",express.json(),branched,async(req,res)=>{
     if(!req.workspace)return;
-    try{assertWorkspaceWrite(req.workspace);const result=await req.workspaceOps.moveToTrash(req.body.path);await refreshWorkspaceUsage(req.workspace);res.json(result);}
+    try{
+      assertWorkspaceWrite(req.workspace);
+      const result=await req.workspaceOps.moveToTrash(req.body.path,Number(req.workspace.trash_limit_bytes||209715200));
+      const workspace=await refreshWorkspaceUsage(req.workspace);
+      res.json({...result,workspace});
+    }
     catch(error){res.status(400).json({error:error.message});}
   });
   for(const route of ["/preview","/download"]){

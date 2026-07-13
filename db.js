@@ -78,6 +78,11 @@ async function migratePermissions(client, workspaceId) {
 
 async function ensureWorkspaceSettings(client) {
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS suspension_reason text`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS storage_last_scanned_at timestamptz`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS file_count bigint NOT NULL DEFAULT 0`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS folder_count bigint NOT NULL DEFAULT 0`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trash_used_bytes bigint NOT NULL DEFAULT 0`);
+  await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trash_limit_bytes bigint NOT NULL DEFAULT 209715200`);
   await client.query(`INSERT INTO system_settings(setting_key,setting_value) VALUES('max_workspaces_per_user','1'::jsonb) ON CONFLICT(setting_key) DO NOTHING`);
 }
 

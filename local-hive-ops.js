@@ -28,7 +28,8 @@ export function makeLocalOps(root) {
   async function listFiles(subpath) {
     const dir = safeResolve(subpath);
     const entries = await fs.readdir(dir, { withFileTypes: true });
-    return Promise.all(entries.map(async (e) => {
+    const visible = path.resolve(dir) === ROOT ? entries.filter((e)=>e.name !== "_trash") : entries;
+    return Promise.all(visible.map(async (e) => {
       if (e.isDirectory()) return { name: e.name, type: "dir" };
       const stat = await fs.stat(path.join(dir, e.name));
       return { name: e.name, type: "file", size: stat.size, mtime: stat.mtime.toISOString() };
@@ -56,13 +57,49 @@ export function makeLocalOps(root) {
   async function deleteFile(filepath) {
     await fs.rm(safeResolve(filepath), { recursive: true, force: false });
   }
-  async function moveToTrash(filepath) {
+  async function ensureTrash() {
+    const trash = safeResolve("_trash");
+    await fs.mkdir(trash,{recursive:true});
+    return trash;
+  }
+  async function emptyTrash() {
+    const trash = await ensureTrash();
+    for (const entry of await fs.readdir(trash)) await fs.rm(path.join(trash,entry),{recursive:true,force:true});
+    return { ok:true };
+  }
+  async function pruneTrash(maxBytes) {
+    const trash = await ensureTrash();
+    const items = [];
+    let total = 0;
+    for (const entry of await fs.readdir(trash,{withFileTypes:true})) {
+      const full = path.join(trash,entry.name);
+      let size = 0;
+      async function walk(target) {
+        const st = await fs.stat(target);
+        if (st.isDirectory()) for (const child of await fs.readdir(target)) await walk(path.join(target,child));
+        else size += st.size;
+      }
+      await walk(full);
+      const stat = await fs.stat(full);
+      total += size;
+      items.push({ full,size,mtime:stat.mtimeMs });
+    }
+    items.sort((a,b)=>a.mtime-b.mtime);
+    for (const item of items) {
+      if (total <= maxBytes) break;
+      await fs.rm(item.full,{recursive:true,force:true});
+      total -= item.size;
+    }
+    return total;
+  }
+  async function moveToTrash(filepath, maxBytes=209715200) {
     const source = safeResolve(filepath);
     const stamp = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(16).slice(2, 8)}`;
-    const trashDir = safeResolve(path.join("_trash", stamp));
+    const trashDir = path.join(await ensureTrash(), stamp);
     await fs.mkdir(trashDir, { recursive: true });
     const target = path.join(trashDir, path.basename(source));
     await fs.rename(source, target);
+    await pruneTrash(maxBytes);
     return { ok: true, trashPath: path.relative(ROOT, target).replace(/\\/g, "/") };
   }
   async function downloadStream(filepath) {
@@ -78,6 +115,6 @@ export function makeLocalOps(root) {
 
   return {
     ROOT, safeResolve, listFiles, readFile, writeFile, writeBuffer,
-    mkdir, moveFile, deleteFile, moveToTrash, downloadStream, fileSize,
+    mkdir, moveFile, deleteFile, ensureTrash, emptyTrash, pruneTrash, moveToTrash, downloadStream, fileSize,
   };
 }

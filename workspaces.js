@@ -4,7 +4,7 @@ import { query } from "./db.js";
 
 const DEFAULT_QUOTA = 2684354560;
 const DEFAULT_MAX_WORKSPACES_PER_USER = 1;
-const BRANCHED_ROOT = "F:\\OrbitFS Project\\The Orbit FS\\Branched Workshop";
+const BRANCHED_ROOT = "F:\\OrbitFS Project\\Branched Workshop";
 
 function cleanName(value) {
   return String(value || "").trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, " ").replace(/\s+/g, " ").slice(0, 80);
@@ -25,6 +25,7 @@ export async function listUserWorkspaces(userId, systemRole) {
   const result = await query(
     `SELECT w.id,w.slug,w.name,w.description,w.status,w.storage_quota_mode,w.storage_quota_bytes,
             w.storage_used_bytes,w.filesystem_root,w.is_main,w.owner_id,w.suspension_reason,
+            w.storage_last_scanned_at,w.file_count,w.folder_count,w.trash_used_bytes,w.trash_limit_bytes,
             CASE WHEN w.owner_id=$1 THEN 'owner' ELSE wm.permission END AS permission,
             u.username AS owner_username
      FROM workspaces w
@@ -86,7 +87,7 @@ export async function createWorkspace({ name, description, userId, username }) {
   const folderName = `${id}@${cleanName(username)} ${safeName}`;
   const filesystemRoot = path.join(BRANCHED_ROOT, folderName);
   try {
-    await fs.mkdir(filesystemRoot,{recursive:true});
+    await fs.mkdir(path.join(filesystemRoot,"_trash"),{recursive:true});
     await query("UPDATE workspaces SET filesystem_root=$2,updated_at=now() WHERE id=$1",[id,filesystemRoot]);
     await query(
       `INSERT INTO workspace_members(workspace_id,user_id,permission)
@@ -100,24 +101,49 @@ export async function createWorkspace({ name, description, userId, username }) {
   return getWorkspaceForUser(id,userId,"admin");
 }
 
-export async function workspaceUsage(root) {
-  let total=0;
-  async function walk(dir){
-    for(const entry of await fs.readdir(dir,{withFileTypes:true})){
-      const full=path.join(dir,entry.name);
-      if(entry.isDirectory()) await walk(full);
-      else total+=(await fs.stat(full)).size;
+export async function workspaceStorageStats(root) {
+  const base = path.resolve(root || ".");
+  const stats = { storage_used_bytes:0, file_count:0, folder_count:0, trash_used_bytes:0 };
+  async function walk(dir, inTrash=false) {
+    for (const entry of await fs.readdir(dir,{withFileTypes:true})) {
+      const full = path.join(dir,entry.name);
+      const relative = path.relative(base,full).replace(/\\/g,"/");
+      const trash = inTrash || relative === "_trash" || relative.startsWith("_trash/");
+      if (entry.isDirectory()) {
+        stats.folder_count += 1;
+        await walk(full,trash);
+      } else {
+        const size = (await fs.stat(full)).size;
+        stats.storage_used_bytes += size;
+        stats.file_count += 1;
+        if (trash) stats.trash_used_bytes += size;
+      }
     }
   }
-  try{await walk(root);}catch(error){if(error.code!=="ENOENT") throw error;}
-  return total;
+  try { await walk(base); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  return stats;
+}
+
+export async function workspaceUsage(root) {
+  return (await workspaceStorageStats(root)).storage_used_bytes;
 }
 
 export async function refreshWorkspaceUsage(workspace) {
-  if(workspace.is_main) return workspace;
-  const used=await workspaceUsage(workspace.filesystem_root);
-  await query("UPDATE workspaces SET storage_used_bytes=$2,updated_at=now() WHERE id=$1",[workspace.id,used]);
-  return {...workspace,storage_used_bytes:used};
+  const stats = await workspaceStorageStats(workspace.filesystem_root);
+  const scannedAt = new Date();
+  await query(
+    `UPDATE workspaces SET storage_used_bytes=$2,file_count=$3,folder_count=$4,
+     trash_used_bytes=$5,storage_last_scanned_at=$6,updated_at=now() WHERE id=$1`,
+    [workspace.id,stats.storage_used_bytes,stats.file_count,stats.folder_count,stats.trash_used_bytes,scannedAt]
+  );
+  return {...workspace,...stats,storage_last_scanned_at:scannedAt.toISOString()};
+}
+
+export async function getWorkspaceStorage(workspaceId,userId,systemRole,refresh=false) {
+  const workspace = await getWorkspaceForUser(workspaceId,userId,systemRole);
+  if (!workspace) throw new Error("Workspace not found or access denied");
+  return refresh ? refreshWorkspaceUsage(workspace) : workspace;
 }
 
 export function assertWorkspaceWrite(workspace) {
@@ -150,6 +176,11 @@ export async function updateWorkspace(workspaceId, changes, actorId, systemRole)
     add("suspension_reason", reason);
   } else if (systemRole === "admin" && changes.suspensionReason !== undefined && !workspace.is_main) {
     add("suspension_reason", String(changes.suspensionReason || "").trim().slice(0, 500) || null);
+  }
+  if (systemRole === "admin" && changes.trashLimitBytes !== undefined && !workspace.is_main) {
+    const limit = Number(changes.trashLimitBytes);
+    if (!Number.isFinite(limit) || limit < 0) throw new Error("Invalid trash limit");
+    add("trash_limit_bytes", Math.trunc(limit));
   }
   if (systemRole === "admin" && changes.storageQuotaBytes !== undefined && !workspace.is_main) {
     const quota = Number(changes.storageQuotaBytes);
@@ -242,4 +273,34 @@ export async function deleteWorkspace(workspaceId, actorId, systemRole) {
     catch (error) { console.error("Workspace folder cleanup failed", error); }
   }
   return { ok: true };
+}
+
+
+export async function transferWorkspaceOwner(workspaceId, username, actorId, systemRole) {
+  if (systemRole !== "admin") throw new Error("Admin access required");
+  const workspace = await getWorkspaceForUser(workspaceId, actorId, systemRole);
+  if (!workspace) throw new Error("Workspace not found or access denied");
+  if (workspace.is_main) throw new Error("Main Workspace ownership cannot be reassigned here");
+  const userResult = await query(
+    "SELECT id,username FROM users WHERE lower(username)=lower($1) AND status='active' LIMIT 1",
+    [String(username || "").trim()]
+  );
+  const user = userResult.rows[0];
+  if (!user) throw new Error("User not found");
+  await query("BEGIN");
+  try {
+    await query("UPDATE workspace_members SET permission='editor',updated_at=now() WHERE workspace_id=$1 AND permission='owner'",[workspaceId]);
+    await query(
+      `INSERT INTO workspace_members(workspace_id,user_id,permission,invited_by)
+       VALUES($1,$2,'owner',$3)
+       ON CONFLICT(workspace_id,user_id) DO UPDATE SET permission='owner',updated_at=now()`,
+      [workspaceId,user.id,actorId]
+    );
+    await query("UPDATE workspaces SET owner_id=$2,updated_at=now() WHERE id=$1",[workspaceId,user.id]);
+    await query("COMMIT");
+  } catch (error) {
+    await query("ROLLBACK");
+    throw error;
+  }
+  return getWorkspaceForUser(workspaceId,actorId,systemRole);
 }
