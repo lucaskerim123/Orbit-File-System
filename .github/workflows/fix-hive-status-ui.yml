@@ -1,0 +1,120 @@
+name: Fix Hive status UI
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-hive-status-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Patch UI and disk reporting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          index=Path('public/index.html')
+          s=index.read_text(encoding='utf-8')
+          s=s.replace('ChatGPT ↔ Claude connection monitor','Hive connections',1)
+          s=s.replace('<span>Disk (C:)</span>','<span id="hive-drive-label">Hive files drive</span>',1)
+          index.write_text(s,encoding='utf-8')
+
+          app=Path('public/app.js')
+          s=app.read_text(encoding='utf-8')
+          old='''    const diskSummaryEl = document.getElementById("disk-summary");
+            if (diskSummaryEl) diskSummaryEl.textContent = `${s.disk.freeGB} GB free`;'''
+          new='''    const diskSummaryEl = document.getElementById("disk-summary");
+            if (diskSummaryEl) diskSummaryEl.textContent = `${s.disk.freeGB} GB free`;
+            const driveLabelEl = document.getElementById("hive-drive-label");
+            if (driveLabelEl) driveLabelEl.textContent = s.disk.label || "Hive files drive";
+            const primaryCard = document.querySelector(".primary-system-card");
+            primaryCard?.classList.toggle("hive-online", hiveRunning);
+            primaryCard?.classList.toggle("hive-offline", !hiveRunning);
+            document.querySelector(".topology")?.classList.toggle("hive-online", hiveRunning);
+            document.querySelector(".topology")?.classList.toggle("hive-offline", !hiveRunning);'''
+          if old not in s:
+              raise SystemExit('app disk marker not found')
+          s=s.replace(old,new,1)
+          app.write_text(s,encoding='utf-8')
+
+          css=Path('public/style.css')
+          s=css.read_text(encoding='utf-8')
+          s += '''
+
+/* Hive health state */
+.primary-system-card.hive-online{
+  border-color:color-mix(in srgb,var(--ok) 72%,var(--sys-line));
+  box-shadow:0 0 18px color-mix(in srgb,var(--ok) 26%,transparent);
+}
+.primary-system-card.hive-offline{
+  border-color:color-mix(in srgb,var(--danger) 75%,var(--sys-line));
+  box-shadow:0 0 18px color-mix(in srgb,var(--danger) 30%,transparent);
+}
+.topology.hive-online .topology-node-hub,
+.topology.hive-online .topology-pulse{
+  color:var(--ok);
+  border-color:var(--ok);
+  background:var(--ok);
+  box-shadow:0 0 9px color-mix(in srgb,var(--ok) 70%,transparent);
+}
+.topology.hive-offline .topology-node-hub,
+.topology.hive-offline .topology-pulse{
+  color:var(--danger);
+  border-color:var(--danger);
+  background:var(--danger);
+  box-shadow:0 0 9px color-mix(in srgb,var(--danger) 72%,transparent);
+}
+.topology.hive-offline .topology-pulse{animation:none;left:50%;opacity:1}
+.sys-zone .pill.down{box-shadow:0 0 8px color-mix(in srgb,var(--danger) 48%,transparent)}
+'''
+          css.write_text(s,encoding='utf-8')
+
+          server=Path('server.js')
+          s=server.read_text(encoding='utf-8')
+          old='''async function readDiskUsage(basePath) {
+            try {
+              const stats = await fs.statfs(basePath);'''
+          new='''async function readDiskUsage(basePath) {
+            try {
+              const stats = await fs.statfs(basePath);'''
+          if old not in s:
+              raise SystemExit('readDiskUsage marker not found')
+          # add label into returned object
+          s=s.replace('''      usedGB: toGb(used),
+                };''','''      usedGB: toGb(used),
+                  label: `Hive files drive (${path.parse(basePath).root || basePath})`,
+                };''',1)
+          s=s.replace('''    return { totalGB: 0, freeGB: 0, usedGB: 0 };''','''    return { totalGB: 0, freeGB: 0, usedGB: 0, label: "Hive files drive" };''',1)
+          # non-cloud PowerShell result: override generic C drive with actual Hive root drive when possible
+          marker='''    const status = JSON.parse(out);
+              const hiveOk = await hive.ping();'''
+          repl='''    const status = JSON.parse(out);
+              status.disk = await readDiskUsage(process.env.HIVE_ROOT || localHiveRoot || HIVE_SERVER_DIR || WORKSPACE_ROOT);
+              const hiveOk = await hive.ping();'''
+          if marker not in s:
+              raise SystemExit('system status marker not found')
+          s=s.replace(marker,repl,1)
+          server.write_text(s,encoding='utf-8')
+          PY
+      - name: Verify JavaScript
+        run: |
+          node --check server.js
+          node --check public/app.js
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server.js public/index.html public/app.js public/style.css
+          git diff --cached --quiet || git commit -m "Fix Hive status glow and files drive reporting"
+          git push
