@@ -18,6 +18,7 @@
     loadScriptOnce("nav-workspace-cleanup.js", "data-orbit-nav-workspace-cleanup");
     loadScriptOnce("mobile-sorter-header.js", "data-orbit-mobile-sorter-header");
     loadScriptOnce("startup-config-cleanup.js", "data-orbit-startup-config-cleanup");
+    loadScriptOnce("hive-health-ui.js", "data-orbit-hive-health-ui");
   }
 
   if (document.readyState === "loading") {
