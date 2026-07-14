@@ -136,6 +136,7 @@ async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
     renderWorkspaceBar();
     renderWorkspaceAdmin();
     renderAdminStorageOverview();
+    renderCompactWorkspaceTrashList();
     loadWorkspaceInvitations();
     loadWorkspaceTransferRequests();
   } catch (error) {
@@ -731,3 +732,48 @@ loadSystem = async function() {
 ensureWorkspaceDialog();
 document.getElementById("workspace-page-create")?.addEventListener("click", openWorkspaceDialog);
 if (state.token) setTimeout(() => loadOrbitWorkspaces(), 0);
+
+function ensureCompactWorkspaceTrashList() {
+  if (document.getElementById("workspace-trash-compact")) return;
+  const retention = document.getElementById("trash-retention-days");
+  const card = retention?.closest("details.card");
+  if (!card) return;
+  const host = document.createElement("div");
+  host.id = "workspace-trash-compact";
+  host.className = "workspace-trash-compact";
+  host.innerHTML = '<div class="workspace-trash-head"><strong>Workspace trash</strong><span>Auto refresh</span></div><div id="workspace-trash-rows"></div>';
+  card.querySelector("#trash-config-message")?.insertAdjacentElement("afterend", host);
+}
+
+function renderCompactWorkspaceTrashList() {
+  ensureCompactWorkspaceTrashList();
+  const rows = document.getElementById("workspace-trash-rows");
+  if (!rows) return;
+  const items = (state.workspaces || []).filter((w) => w.is_main || w.is_visible !== false);
+  rows.innerHTML = items.map((w) => {
+    const used = Number(w.trash_used_bytes || 0);
+    const limit = Number(w.trash_limit_bytes || 0);
+    const pct = limit > 0 ? Math.min(100, used / limit * 100) : 0;
+    const max = limit > 0 ? workspaceFormatBytes(limit) : "Unlimited";
+    return `<div class="workspace-trash-row"><div class="workspace-trash-line"><strong>${escapeWorkspaceHtml(w.name || "Workspace")}</strong><span>${workspaceFormatBytes(used)} / ${max}</span></div><div class="workspace-trash-meter"><span style="width:${pct}%"></span></div></div>`;
+  }).join("") || '<p class="muted-text">No workspaces.</p>';
+}
+
+async function refreshCompactWorkspaceTrashList() {
+  if (!state.token || state.role !== "admin") return;
+  try {
+    const refreshed = await Promise.all((state.workspaces || []).map(async (w) => {
+      try {
+        const result = await api(`/api/workspaces/${encodeURIComponent(w.id)}/storage?refresh=true`);
+        return result.workspace || w;
+      } catch { return w; }
+    }));
+    state.workspaces = refreshed;
+    renderCompactWorkspaceTrashList();
+  } catch {}
+}
+
+window.addEventListener("load", () => {
+  setTimeout(refreshCompactWorkspaceTrashList, 2500);
+  setInterval(refreshCompactWorkspaceTrashList, 30000);
+});
