@@ -30,7 +30,7 @@
 
   const css = document.createElement("link");
   css.rel = "stylesheet";
-  css.href = "workspace-ui.css?v=20260715-notifications";
+  css.href = "workspace-ui.css?v=20260715-accesslock";
   document.head.appendChild(css);
 })();
 function workspaceFormatBytes(value) {
@@ -437,6 +437,7 @@ function buildWorkspaceAdminCard(workspace) {
   const canManageMembers = isAdmin || isOwner || management.manage_members;
   const canViewSettings = isAdmin || isOwner || management.view_settings;
   const canEditSettings = isAdmin || isOwner || management.edit_settings;
+  const canLeave = !workspace.is_main && !isOwner && !isAdmin;
   const isSuspended = workspace.status === "suspended";
   const mainOffline = workspace.is_main && workspace.is_visible === false;
   const branchOffline = !workspace.is_main && workspace.drive_state === "offline";
@@ -469,6 +470,7 @@ function buildWorkspaceAdminCard(workspace) {
         ${workspace.is_main && (isAdmin || isOwner) ? `<button type="button" class="workspace-visibility-btn">${mainOffline ? "Bring online" : "Hide drive"}</button>` : ""}
         ${!workspace.is_main && canEditSettings ? `<button type="button" class="workspace-drive-state-btn">${branchOffline ? "Bring online" : "Take offline"}</button>` : ""}
         ${!workspace.is_main && canViewSettings ? '<button type="button" class="workspace-edit-btn">Settings</button>' : ""}
+        ${canLeave ? '<button type="button" class="danger workspace-leave-btn">Leave workspace</button>' : ""}
       </div>
       <div class="workspace-admin-detail hidden"></div>
     </div>`;
@@ -495,6 +497,24 @@ function buildWorkspaceAdminCard(workspace) {
     catch(error){ alert(error.message); }
   });
   card.querySelector(".workspace-edit-btn")?.addEventListener("click", () => { setExpanded(true); toggleWorkspaceDetail(card,"settings",() => showWorkspaceSettings(workspace, card)); });
+  card.querySelector(".workspace-leave-btn")?.addEventListener("click", async () => {
+    if (!confirm(`Leave workspace "${workspace.name}"? You will lose access until invited again.`)) return;
+    const wasActive = String(state.workspaceId) === String(workspace.id);
+    try {
+      await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/leave`, { method:"DELETE" });
+      const main = state.workspaces.find((item) => item.is_main);
+      const nextId = wasActive && main ? String(main.id) : state.workspaceId;
+      if (wasActive) {
+        state.workspaceId = nextId || "";
+        state.subpath = "";
+        if (state.workspaceId) localStorage.setItem("panelWorkspaceId", state.workspaceId);
+        else localStorage.removeItem("panelWorkspaceId");
+        if (typeof closeAllPanels === "function") closeAllPanels();
+      }
+      await loadOrbitWorkspaces(nextId);
+      if (wasActive && typeof loadFiles === "function") await loadFiles();
+    } catch (error) { alert(error.message); }
+  });
   card.expandWorkspaceCard = () => setExpanded(true);
   return card;
 }

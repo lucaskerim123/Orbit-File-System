@@ -14,7 +14,7 @@
   function install() {
     loadScriptOnce("drive-upload.js", "data-orbit-drive-upload");
     loadScriptOnce("page-refresh.js", "data-orbit-page-refresh");
-    loadScriptOnce("stable-admin-layout.js?v=20260715-notifications", "data-orbit-stable-admin-layout");
+    loadScriptOnce("stable-admin-layout.js?v=20260715-accesslock", "data-orbit-stable-admin-layout");
     loadScriptOnce("nav-workspace-cleanup.js?v=20260715-notifications", "data-orbit-nav-workspace-cleanup");
     loadScriptOnce("mobile-sorter-header.js", "data-orbit-mobile-sorter-header");
     loadScriptOnce("workspace-permission-editor.js?v=20260715-notifications", "data-orbit-workspace-permission-editor");
