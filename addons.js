@@ -27,6 +27,23 @@ export const ADDONS = {
 function addonFolder(definition) {
   return path.join(PLUGINS_DIR, definition.folderName);
 }
+function parkedAddonFolder(definition) {
+  return path.join(PARKED_ADDONS_DIR, definition.folderName);
+}
+function isInsidePath(candidate, parent) {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+export function isPathInParkedAddons(candidate) {
+  if (!candidate) return false;
+  try {
+    const parked = fsSync.existsSync(PARKED_ADDONS_DIR) ? fsSync.realpathSync(PARKED_ADDONS_DIR) : path.resolve(PARKED_ADDONS_DIR);
+    const target = fsSync.existsSync(candidate) ? fsSync.realpathSync(candidate) : path.resolve(candidate);
+    return isInsidePath(target, parked);
+  } catch {
+    return isInsidePath(path.resolve(candidate), path.resolve(PARKED_ADDONS_DIR));
+  }
+}
 
 async function readState() {
   try {
@@ -46,8 +63,12 @@ async function writeState(state) {
 
 function folderInstalled(definition) {
   const folder = addonFolder(definition);
+  if (isPathInParkedAddons(folder)) return false;
   return fsSync.existsSync(folder)
     && definition.requiredFiles.every((file) => fsSync.existsSync(path.join(folder, file)));
+}
+function folderParked(definition) {
+  return fsSync.existsSync(parkedAddonFolder(definition));
 }
 export function addonPath(id) {
   const definition = ADDONS[id];
@@ -91,7 +112,7 @@ export async function attachAddon(id) {
   const definition = ADDONS[id];
   if (!definition) throw new Error("Unknown addon");
   if (!folderInstalled(definition)) {
-    const error = new Error(`Place the ${definition.folderName} folder in the plugins folder before attaching it.`);
+    const error = new Error(`Move the ${definition.folderName} folder from "Not Installed" into the main plugins folder before attaching it.`);
     error.status = 409;
     throw error;
   }

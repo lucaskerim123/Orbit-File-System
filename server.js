@@ -15,7 +15,7 @@ import { workspaceRouter } from "./workspace-routes.js";
 import { beginDownload } from "./download-limits.js";
 import { evaluateWorkspaceLifecycle, getWorkspaceForUser, listUserWorkspaces } from "./workspaces.js";
 import { effectiveWorkspaceAdminPermissions, fullWorkspaceAdminPermissions } from "./workspace-permissions.js";
-import { addonEnabled, addonPath, addonStatus, listAddonStatuses, attachAddon, detachAddon, initialiseAddonState } from "./addons.js";
+import { addonEnabled, addonPath, addonStatus, listAddonStatuses, attachAddon, detachAddon, initialiseAddonState, isPathInParkedAddons } from "./addons.js";
 import { getRestrictedTabs } from "./tab-restrictions.js";
 import { query } from "./db.js";
 
@@ -45,7 +45,9 @@ const CLOUDFLARED_DIR = process.env.CLOUDFLARED_DIR || "C:\\cloudflared";
 const SORTER_SERVICE_NAME = process.env.SORTER_SERVICE_NAME || "OrbitFSSorter";
 const DEFAULT_SORTER_DIR = path.join(__dirname, "plugins", "OrbitFS Sorter");
 const ENV_SORTER_DIR = process.env.SORTER_DIR;
-const SORTER_DIR = ENV_SORTER_DIR && fsSync.existsSync(path.join(ENV_SORTER_DIR, "server.js"))
+const SORTER_DIR = ENV_SORTER_DIR
+  && !isPathInParkedAddons(ENV_SORTER_DIR)
+  && fsSync.existsSync(path.join(ENV_SORTER_DIR, "server.js"))
   ? ENV_SORTER_DIR
   : DEFAULT_SORTER_DIR;
 const SORTER_URL = process.env.SORTER_URL || "http://localhost:4055";
