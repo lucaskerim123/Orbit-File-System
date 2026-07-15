@@ -103,7 +103,7 @@
     card.id = "addon-manager-card";
     card.className = "card addon-manager-card";
     card.open = true;
-    card.innerHTML = `<summary><span>Addons</span><small>Attach / detach safely</small></summary><p class="muted-text">Detach an addon before moving its folder out of <code>plugins</code>. Put the folder back before attaching it again.</p><div id="addon-manager-grid" class="addon-manager-grid"></div><p id="addon-manager-message" class="muted-text"></p>`;
+    card.innerHTML = `<summary><span>Addons</span><small>Attach / detach safely</small></summary><p class="muted-text">Detach an addon, then move its folder into <code>plugins\Not Installed</code>. OrbitFS never scans, serves or loads anything stored in that folder. Move the addon back into the main <code>plugins</code> folder before attaching it again.</p><div id="addon-manager-grid" class="addon-manager-grid"></div><p id="addon-manager-message" class="muted-text"></p>`;
     host.prepend(card);
     return card;
   }
@@ -120,15 +120,18 @@
         ? `Service: ${item.online ? "Online" : "Offline"}`
         : `Workspace Mode: ${item.attached ? "Available" : "Unavailable"}`;
       const note = item.status === "uninstalled"
-        ? `Folder not detected. Put “${item.folderName}” back in the plugins folder, then press Attach.`
+        ? item.parked
+          ? `Parked in Not Installed and fully ignored. Move "${item.folderName}" back into the main plugins folder, then press Attach.`
+          : `Folder not detected. Put "${item.folderName}" directly in the main plugins folder, then press Attach.`
         : sorterBlocked
           ? "Stop Sorter in Systems before detaching it."
           : item.attached
             ? "Detach before moving this addon folder. Data is preserved."
-            : "The folder can now be moved out safely, or press Attach to enable it again.";
+            : "Detached. Move the folder into Not Installed to park it safely, or press Attach to enable it again.";
       return `<article class="addon-item" data-addon-id="${esc(item.id)}">
         <div class="addon-item-head"><div class="addon-item-title"><strong>${esc(item.name)}</strong><small>${esc(item.description)}</small></div><span class="addon-status" data-state="${esc(item.status)}">${esc(item.status)}</span></div>
-        <code class="addon-folder">Plugin: ${esc(item.folderPath || item.folderName)}</code>
+        <code class="addon-folder">Installed location: ${esc(item.folderPath || item.folderName)}</code>
+        <code class="addon-folder">Safe parking: ${esc(item.parkedFolderPath || "plugins\Not Installed")}</code>
         ${item.storageRoot ? `<code class="addon-folder">Workspace storage: ${esc(item.storageRoot)}</code>` : ""}
         <p class="addon-runtime">${esc(runtime)}</p>
         <div class="addon-actions"><button type="button" data-addon-action="attach" ${attachDisabled ? "disabled" : ""}>Attach</button><button type="button" class="danger" data-addon-action="detach" ${detachDisabled ? "disabled" : ""}>Detach</button></div>

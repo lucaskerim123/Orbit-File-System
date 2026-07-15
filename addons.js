@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PLUGINS_DIR = path.join(__dirname, "plugins");
+export const PARKED_ADDONS_DIR = path.join(PLUGINS_DIR, "Not Installed");
 const STATE_PATH = path.join(__dirname, "runtime", "addons.json");
 
 export const ADDONS = {
@@ -89,6 +90,8 @@ export async function addonStatus(id, extra = {}) {
   return {
     ...definition,
     folderPath: addonFolder(definition),
+    parkedFolderPath: parkedAddonFolder(definition),
+    parked: folderParked(definition),
     installed,
     attached,
     status: !installed ? "uninstalled" : attached ? "attached" : "detached",
