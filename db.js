@@ -94,7 +94,42 @@ async function ensureWorkspaceSettings(client) {
     ('workspace_inactive_days','30'::jsonb),('workspace_offline_warning_days','7'::jsonb),
     ('workspace_delete_after_offline_days','30'::jsonb),('workspace_delete_warning_days','7'::jsonb)
     ON CONFLICT(setting_key) DO NOTHING`);
-  await client.query(`CREATE TABLE IF NOT EXISTS workspace_transfer_requests(
+  await client.query(`CREATE TABLE IF NOT EXISTS sorter_workspace_settings(
+    workspace_id uuid PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+    mode text NOT NULL DEFAULT 'confirm' CHECK(mode IN ('manual','confirm','automatic')),
+    auto_threshold numeric NOT NULL DEFAULT 0.90,
+    suggestion_threshold numeric NOT NULL DEFAULT 0.60,
+    content_scanning boolean NOT NULL DEFAULT false,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  await client.query(`CREATE TABLE IF NOT EXISTS sorter_learning(
+    workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    signal_type text NOT NULL,
+    signal_value text NOT NULL,
+    destination_path text NOT NULL,
+    positive_count integer NOT NULL DEFAULT 0,
+    negative_count integer NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY(workspace_id,signal_type,signal_value,destination_path)
+  )`);
+  await client.query(`CREATE TABLE IF NOT EXISTS workspace_permission_overrides(
+    workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    relative_path text NOT NULL DEFAULT '',
+    workspace_role text NOT NULL CHECK(workspace_role IN ('editor','contributor','viewer')),
+    can_read boolean NOT NULL DEFAULT true,
+    can_write boolean NOT NULL DEFAULT false,
+    can_download boolean NOT NULL DEFAULT true,
+    can_move boolean NOT NULL DEFAULT false,
+    can_delete boolean NOT NULL DEFAULT false,
+    can_create boolean NOT NULL DEFAULT false,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY(workspace_id,relative_path,workspace_role)
+  )`);
+  await client.query(`INSERT INTO system_settings(setting_key,setting_value) VALUES
+    ('workspace_mode_enabled','true'::jsonb),
+    ('sorter_allow_automatic','false'::jsonb),
+    ('sorter_allow_content_scanning','false'::jsonb)
+    ON CONFLICT(setting_key) DO NOTHING`);  await client.query(`CREATE TABLE IF NOT EXISTS workspace_transfer_requests(
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     requested_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,

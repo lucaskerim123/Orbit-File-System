@@ -5,6 +5,7 @@ import { Readable } from "stream";
 import { query } from "./db.js";
 import { makeLocalOps } from "./local-orbitfs-ops.js";
 import { beginDownload } from "./download-limits.js";
+import { WORKSPACE_ACTIONS,WORKSPACE_ROLES,effectiveWorkspacePermissions,normalizeWorkspacePath,roleDefaults } from "./workspace-permissions.js";
 import { requestWorkspaceTransfer,listTransferRequests,respondTransferRequest,cancelTransferRequest,listWorkspaceUserDirectory } from "./workspace-transfers.js";
 import { inviteWorkspaceUser,listPendingInvitations,listWorkspaceInvitations,respondToWorkspaceInvitation,revokeWorkspaceInvitation } from "./workspace-invitations.js";
 import {
@@ -19,6 +20,21 @@ import {
 const FULL = { read:true,write:true,download:true,move:true,delete:true,create:true };
 const READ = { read:true,write:false,download:true,move:false,delete:false,create:false };
 const RESTRICTABLE_TABS = new Set(["sorter"]);
+async function workspaceModeEnabled(){
+  const row=(await query("SELECT setting_value FROM system_settings WHERE setting_key='workspace_mode_enabled' LIMIT 1")).rows[0];
+  return row?.setting_value!==false;
+}
+async function setWorkspaceModeEnabled(enabled){
+  await query(`INSERT INTO system_settings(setting_key,setting_value,updated_at) VALUES('workspace_mode_enabled',$1::jsonb,now())
+    ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value,updated_at=now()`,[JSON.stringify(!!enabled)]);
+  return {workspaceModeEnabled:!!enabled};
+}
+async function assertWorkspaceAction(req,filepath,action){
+  if(req.role==='admin'||req.workspace.permission==='owner') return roleDefaults('editor');
+  const effective=await effectiveWorkspacePermissions(req.workspace.id,req.workspace.permission,filepath);
+  if(!effective[action]){ const error=new Error(`Workspace permission denied: ${action}`); error.status=403; throw error; }
+  return effective;
+}
 
 function permissions(workspace, systemRole) {
   if (systemRole === "admin" || ["owner","editor"].includes(workspace.permission)) return FULL;
@@ -155,7 +171,50 @@ export function workspaceRouter() {
     try { res.json(await cancelTransferRequest(req.params.id,req.userId,req.role)); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
-  router.get("/workspace-settings", async (req,res) => {
+  router.get("/workspace-mode", async (req,res) => {
+    try { res.json({workspaceModeEnabled:await workspaceModeEnabled()}); }
+    catch(error){ res.status(400).json({error:error.message}); }
+  });
+  router.patch("/workspace-mode",express.json(),async(req,res)=>{
+    if(req.role!=="admin") return res.status(403).json({error:"Admin access required"});
+    try { res.json(await setWorkspaceModeEnabled(req.body?.enabled)); }
+    catch(error){ res.status(400).json({error:error.message}); }
+  });
+  router.get("/workspaces/:id/permission-overrides",async(req,res)=>{
+    try{
+      const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role);
+      if(!workspace) throw new Error("Workspace not found or access denied");
+      if(workspace.is_main) throw new Error("Main Workspace uses Simple Mode file permissions");
+      if(req.role!=="admin"&&workspace.permission!=="owner") throw new Error("Owner access required");
+      const rows=(await query(`SELECT relative_path,workspace_role,can_read,can_write,can_download,can_move,can_delete,can_create
+        FROM workspace_permission_overrides WHERE workspace_id=$1 ORDER BY relative_path,workspace_role`,[workspace.id])).rows;
+      res.json({overrides:rows.map(row=>({path:row.relative_path,role:row.workspace_role,permissions:{read:row.can_read,write:row.can_write,download:row.can_download,move:row.can_move,delete:row.can_delete,create:row.can_create}}))});
+    }catch(error){ res.status(400).json({error:error.message}); }
+  });
+  router.put("/workspaces/:id/permission-overrides",express.json(),async(req,res)=>{
+    try{
+      const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role);
+      if(!workspace) throw new Error("Workspace not found or access denied");
+      if(workspace.is_main) throw new Error("Main Workspace uses Simple Mode file permissions");
+      if(req.role!=="admin"&&workspace.permission!=="owner") throw new Error("Owner access required");
+      const role=String(req.body?.role||""); if(!WORKSPACE_ROLES.includes(role)) throw new Error("Invalid workspace role");
+      const relativePath=normalizeWorkspacePath(req.body?.path); const input=req.body?.permissions||{};
+      const values=WORKSPACE_ACTIONS.map(action=>!!input[action]);
+      await query(`INSERT INTO workspace_permission_overrides(workspace_id,relative_path,workspace_role,can_read,can_write,can_download,can_move,can_delete,can_create)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT(workspace_id,relative_path,workspace_role) DO UPDATE SET can_read=EXCLUDED.can_read,can_write=EXCLUDED.can_write,can_download=EXCLUDED.can_download,can_move=EXCLUDED.can_move,can_delete=EXCLUDED.can_delete,can_create=EXCLUDED.can_create,updated_at=now()`,[workspace.id,relativePath,role,...values]);
+      res.json({ok:true});
+    }catch(error){ res.status(400).json({error:error.message}); }
+  });
+  router.delete("/workspaces/:id/permission-overrides",async(req,res)=>{
+    try{
+      const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role);
+      if(!workspace) throw new Error("Workspace not found or access denied");
+      if(req.role!=="admin"&&workspace.permission!=="owner") throw new Error("Owner access required");
+      await query(`DELETE FROM workspace_permission_overrides WHERE workspace_id=$1 AND relative_path=$2 AND workspace_role=$3`,[workspace.id,normalizeWorkspacePath(req.query.path),String(req.query.role||"")]);
+      res.json({ok:true});
+    }catch(error){ res.status(400).json({error:error.message}); }
+  });  router.get("/workspace-settings", async (req,res) => {
     try {
       const settings = await getWorkspaceCreationSettings();
       const ownedCount = await ownedWorkspaceCount(req.userId);

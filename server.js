@@ -13,7 +13,7 @@ import { canAccessPath, permissionsForPath, filterEntriesForRole, listPermission
 import { needsSetup, runSetup, tryStartOrbitFSServer } from "./setup.js";
 import { workspaceRouter } from "./workspace-routes.js";
 import { beginDownload } from "./download-limits.js";
-import { evaluateWorkspaceLifecycle } from "./workspaces.js";
+import { evaluateWorkspaceLifecycle, getWorkspaceForUser, listUserWorkspaces } from "./workspaces.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -319,6 +319,16 @@ app.use("/api/sorter", express.raw({ type: "*/*", limit: "2mb" }), async (req, r
     const headers = { "Content-Type": req.get("content-type") || "application/json" };
     const apiKey = getSorterApiKey();
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    const requested = req.get("x-workspace-id");
+    const available = await listUserWorkspaces(req.userId, req.role);
+    const workspace = requested
+      ? await getWorkspaceForUser(requested, req.userId, req.role)
+      : (available.find((item) => item.is_main) || available[0]);
+    if (!workspace) return res.status(403).json({ error: "Workspace not found or access denied" });
+    headers["X-Workspace-Id"] = String(workspace.id);
+    headers["X-Workspace-Root"] = encodeURIComponent(workspace.filesystem_root);
+    headers["X-Sorter-Admin"] = String(req.role === "admin");
+    headers["X-Sorter-Owner"] = String(req.role === "admin" || workspace.permission === "owner" || String(workspace.owner_id) === String(req.userId));
     const resp = await fetch(`http://localhost:${port}/api${req.url}`, {
       method: req.method,
       headers,
