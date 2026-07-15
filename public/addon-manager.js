@@ -34,7 +34,7 @@
       "workspaces-ui"
     );
     await loadScript(
-      "/addon-assets/workspaces/workspace-permission-editor.js?v=20260715-final",
+      "/addon-assets/workspaces/workspace-permission-editor.js?v=20260716-config",
       "workspaces-permissions"
     );
     await loadScript(

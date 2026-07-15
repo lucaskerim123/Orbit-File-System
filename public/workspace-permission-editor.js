@@ -50,7 +50,7 @@
   }
   function ensureModeCard() {
     if (state.role !== "admin") return;
-    const host = document.getElementById("admin-zone-host");
+    const host = document.getElementById("config-zone-main");
     if (!host || document.getElementById("workspace-mode-card")) return;
     const card = document.createElement("section");
     card.id = "workspace-mode-card";
