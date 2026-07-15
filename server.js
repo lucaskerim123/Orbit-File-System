@@ -14,7 +14,9 @@ import { needsSetup, runSetup, tryStartOrbitFSServer } from "./setup.js";
 import { workspaceRouter } from "./workspace-routes.js";
 import { beginDownload } from "./download-limits.js";
 import { evaluateWorkspaceLifecycle, getWorkspaceForUser, listUserWorkspaces } from "./workspaces.js";
-import { effectiveWorkspaceAdminPermissions } from "./workspace-permissions.js";
+import { effectiveWorkspaceAdminPermissions, fullWorkspaceAdminPermissions } from "./workspace-permissions.js";
+import { addonEnabled, addonPath, addonStatus, listAddonStatuses, attachAddon, detachAddon, initialiseAddonState } from "./addons.js";
+import { getRestrictedTabs } from "./tab-restrictions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +28,7 @@ function withTimeout(promise, ms, message = "Operation timed out") {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 dotenv.config({ path: path.join(__dirname, ".env") });
+await initialiseAddonState();
 const PORT = process.env.PANEL_PORT || 4000;
 const LOG_DIR = path.join(__dirname, "logs");
 const WORKSPACE_ROOT = path.dirname(__dirname);
@@ -63,6 +66,15 @@ const localOps = localOrbitFSRoot ? makeLocalOps(localOrbitFSRoot) : null;
 
 const app = express();
 app.set("etag", false);
+const workspaceAddonAssets = express.static(path.join(addonPath("workspaces"), "public"), {
+  setHeaders: (res) => res.set("Cache-Control", "no-store"),
+});
+app.use("/addon-assets/workspaces", async (req,res,next) => {
+  try {
+    if (!(await addonEnabled("workspaces"))) return res.status(404).end();
+    workspaceAddonAssets(req,res,next);
+  } catch (error) { res.status(404).end(); }
+});
 
 function resolvePowerShellCommand() {
   for (const candidate of POWERSHELL_CANDIDATES) {
@@ -194,7 +206,84 @@ app.use("/api", async (req, res, next) => {
   next();
 });
 
-app.use("/api", workspaceRouter());
+async function currentAddonStatuses() {
+  const sorter = await addonStatus("sorter");
+  let online = false;
+  if (sorter.installed) {
+    const port = await resolveSorterPort().catch(() => null);
+    online = !!port && await sorterOnline(port).catch(() => false);
+  }
+  return listAddonStatuses({ sorter:{ online }, workspaces:{ online:await addonEnabled("workspaces") } });
+}
+
+async function sorterAccessForRequest(req) {
+  const workspacesAttached = await addonEnabled("workspaces");
+  const restricted = await getRestrictedTabs(req.userId, req.role);
+  const all = await listUserWorkspaces(req.userId, req.role);
+  const main = all.find((item) => item.is_main) || all[0] || null;
+  let workspace = main;
+  if (workspacesAttached) {
+    const requested = req.get("x-workspace-id") || req.query?.workspaceId || req.body?.workspaceId;
+    if (requested) workspace = await getWorkspaceForUser(requested, req.userId, req.role) || main;
+  }
+  if (!workspace) throw new Error("Main workspace is unavailable");
+  const owns = req.role === "admin" || workspace.permission === "owner" || String(workspace.owner_id) === String(req.userId);
+  let permissions;
+  if (owns) permissions = fullWorkspaceAdminPermissions();
+  else if (!workspacesAttached || workspace.is_main) permissions = { use_sorter:true, manage_sorter_settings:false };
+  else permissions = await effectiveWorkspaceAdminPermissions(workspace.id, workspace.permission);
+  if (restricted.includes("sorter")) permissions = { ...permissions, use_sorter:false, manage_sorter_settings:false };
+  return {
+    workspace,
+    useSorter:!!permissions.use_sorter,
+    accessSorterSettings:!!permissions.use_sorter && !!permissions.manage_sorter_settings,
+    workspacesAttached,
+  };
+}
+
+app.get("/api/addons/status", async (req,res) => {
+  try {
+    const addons = (await currentAddonStatuses()).map(({folderPath,requiredFiles,...addon}) => addon);
+    res.json({ addons });
+  } catch (error) { res.status(500).json({ error:error.message }); }
+});
+app.get("/api/addons", requireAdmin, async (req,res) => {
+  try { res.json({ addons:await currentAddonStatuses() }); }
+  catch (error) { res.status(500).json({ error:error.message }); }
+});
+app.post("/api/addons/:id/attach", requireAdmin, async (req,res) => {
+  try {
+    const addon = await attachAddon(req.params.id);
+    logEvent("panel.addon.attached", { addon:req.params.id, user:req.username });
+    res.json({ addon, addons:await currentAddonStatuses() });
+  } catch (error) { res.status(error.status || 400).json({ error:error.message }); }
+});
+app.post("/api/addons/:id/detach", requireAdmin, async (req,res) => {
+  try {
+    let online = false;
+    if (req.params.id === "sorter") {
+      const port = await resolveSorterPort().catch(() => null);
+      online = !!port && await sorterOnline(port).catch(() => false);
+    }
+    const addon = await detachAddon(req.params.id, { sorterOnline:online });
+    logEvent("panel.addon.detached", { addon:req.params.id, user:req.username });
+    res.json({ addon, addons:await currentAddonStatuses() });
+  } catch (error) { res.status(error.status || 400).json({ error:error.message }); }
+});
+app.get("/api/sorter-access", async (req,res) => {
+  try {
+    const access = await sorterAccessForRequest(req);
+    res.json({ workspaceId:access.workspace.id, useSorter:access.useSorter, accessSorterSettings:access.accessSorterSettings, workspace:{ id:access.workspace.id, name:access.workspace.name || "Main Workspace", is_main:!!access.workspace.is_main, permission:access.workspace.permission || (req.role === "admin" ? "owner" : "viewer"), drive_state:access.workspace.drive_state || "online", status:access.workspace.status || "active" } });
+  } catch (error) { res.status(400).json({ error:error.message }); }
+});
+
+const workspaceAddonRouter = workspaceRouter();
+app.use("/api", async (req,res,next) => {
+  try {
+    if (!(await addonEnabled("workspaces"))) return next();
+    return workspaceAddonRouter(req,res,next);
+  } catch (error) { return next(); }
+});
 
 app.use("/api", (req, res, next) => {
   const started = Date.now();
@@ -210,12 +299,13 @@ app.use("/api", (req, res, next) => {
 
 app.get("/api/status", async (req, res) => {
   const hiveOk = await hive.ping();
-  const sorterInstalled = fsSync.existsSync(SORTER_DIR);
-  const sorterPort = sorterInstalled ? await resolveSorterPort() : null;
-  const sorterOk = sorterInstalled && await sorterOnline(sorterPort || 0);
+  const sorterAddon = await addonStatus("sorter");
+  const sorterPort = sorterAddon.attached ? await resolveSorterPort() : null;
+  const sorterOk = sorterAddon.attached && await sorterOnline(sorterPort || 0);
   res.json({
     hive: { ok: hiveOk, url: hive.baseUrl },
-    sorter: { installed: sorterInstalled, ok: sorterOk, port: sorterPort },
+    sorter: { installed:sorterAddon.installed, attached:sorterAddon.attached, status:sorterAddon.status, ok:sorterOk, port:sorterPort },
+    addons: (await currentAddonStatuses()).map(({folderPath,requiredFiles,...addon}) => addon),
     localFallback: { available: !!localOps, active: !hiveOk && !!localOps },
     checkedAt: new Date().toISOString(),
   });
@@ -308,36 +398,30 @@ async function sorterOnline(port) {
 // SORTER_ENABLED=false forces it hidden even if the folder exists.
 app.get("/api/sorter-available", async (req, res) => {
   const enabled = process.env.SORTER_ENABLED !== "false";
-  const installed = enabled && fsSync.existsSync(SORTER_DIR);
-  const port = installed ? await resolveSorterPort() : null;
-  const online = installed && (await sorterOnline(port || 0));
-  res.json({ available: installed, online, url: port ? `http://localhost:${port}` : SORTER_URL });
+  const addon = await addonStatus("sorter");
+  const attached = enabled && addon.attached;
+  const port = attached ? await resolveSorterPort() : null;
+  const online = attached && (await sorterOnline(port || 0));
+  res.json({ available:addon.installed, installed:addon.installed, attached, status:addon.status, online, url:port ? `http://localhost:${port}` : SORTER_URL });
 });
 
 app.use("/api/sorter", express.raw({ type: "*/*", limit: "2mb" }), async (req, res) => {
   try {
+    const addon = await addonStatus("sorter");
+    if (!addon.attached || process.env.SORTER_ENABLED === "false") {
+      return res.status(404).json({ error:"Sorter addon is not attached", addonStatus:addon.status });
+    }
+    const access = await sorterAccessForRequest(req);
+    if (!access.useSorter) return res.status(403).json({ error:"Sorter access is not enabled for your workspace role" });
+    const workspace = access.workspace;
+    const sorterPath = String(req.url || "").split("?")[0];
+    const settingsRequest = sorterPath === "/settings" || sorterPath.startsWith("/settings/") || (sorterPath === "/learning" && req.method === "DELETE");
+    if (settingsRequest && !access.accessSorterSettings) return res.status(403).json({ error:"Sorter settings access is not enabled for your workspace role" });
+    if ((sorterPath === "/policy" || sorterPath.startsWith("/policy/")) && req.role !== "admin") return res.status(403).json({ error:"Admin access required" });
     const port = await resolveSorterPort();
-    const headers = { "Content-Type": req.get("content-type") || "application/json" };
+    const headers = { "Content-Type":req.get("content-type") || "application/json" };
     const apiKey = getSorterApiKey();
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    const requested = req.get("x-workspace-id");
-    const available = await listUserWorkspaces(req.userId, req.role);
-    const workspace = requested
-      ? await getWorkspaceForUser(requested, req.userId, req.role)
-      : (available.find((item) => item.is_main) || available[0]);
-    if (!workspace) return res.status(403).json({ error: "Workspace not found or access denied" });
-    const sorterPath=String(req.url||"").split("?")[0];
-    let sorterAccess={use_sorter:true,manage_sorter_settings:true};
-    const ownsWorkspace=workspace.permission==="owner"||String(workspace.owner_id)===String(req.userId);
-    if(req.role!=="admin"&&!ownsWorkspace){
-      sorterAccess=workspace.is_main
-        ? {use_sorter:true,manage_sorter_settings:false}
-        : await effectiveWorkspaceAdminPermissions(workspace.id,workspace.permission);
-    }
-    if(!sorterAccess.use_sorter) return res.status(403).json({error:"Sorter access is not enabled for your workspace role"});
-    const settingsRequest=sorterPath==="/settings"||sorterPath.startsWith("/settings/")||(sorterPath==="/learning"&&req.method==="DELETE");
-    if(settingsRequest&&!sorterAccess.manage_sorter_settings) return res.status(403).json({error:"Sorter settings access is not enabled for your workspace role"});
-    if((sorterPath==="/policy"||sorterPath.startsWith("/policy/"))&&req.role!=="admin") return res.status(403).json({error:"Admin access required"});
     headers["X-Workspace-Id"] = String(workspace.id);
     headers["X-Workspace-Root"] = encodeURIComponent(workspace.filesystem_root);
     headers["X-Sorter-Admin"] = String(req.role === "admin");
@@ -795,6 +879,10 @@ app.get("/api/system/status", async (req, res) => {
       SORTER_SERVICE_NAME,
     ]);
     const status = JSON.parse(out);
+    const addonStatuses = await currentAddonStatuses();
+    status.addons = addonStatuses.map(({folderPath,requiredFiles,...addon}) => addon);
+    const sorterAddon = addonStatuses.find((addon) => addon.id === "sorter");
+    status.sorter = { ...(status.sorter || {}), installed:!!sorterAddon?.installed, attached:!!sorterAddon?.attached, addonStatus:sorterAddon?.status || "uninstalled" };
     const hiveOk = await hive.ping();
     status.hive = {
       ...(status.hive || {}),
@@ -823,6 +911,9 @@ app.post("/api/system/control", requireAdmin, express.json(), async (req, res) =
   const action = req.body?.action || "restart";
   if (!CONTROL_TARGETS.has(target)) return res.status(400).json({ error: "invalid target" });
   if (!CONTROL_ACTIONS.has(action)) return res.status(400).json({ error: "invalid action" });
+  if (target === "sorter" && action !== "stop" && !(await addonEnabled("sorter"))) {
+    return res.status(409).json({ error:"Attach the Sorter addon in Config before starting it." });
+  }
 
   const scriptPath = path.join(__dirname, "scripts", "system-control.ps1");
 
@@ -1055,10 +1146,10 @@ app.use(
 // brain.incendiarynetworks.cc to localhost:4000 via a hardcoded web.config
 // rule, so auto-picking a port here would silently break the public URL.
 // Only the sorter auto-ports (it owns updating the cloudflared ingress).
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   logEvent("panel.powershell.command", { command: POWERSHELL_CMD });
-  evaluateWorkspaceLifecycle().catch((error)=>logError("workspace.lifecycle.error",error));
-  setInterval(()=>evaluateWorkspaceLifecycle().catch((error)=>logError("workspace.lifecycle.error",error)),60*60*1000).unref();
+  if (await addonEnabled("workspaces")) evaluateWorkspaceLifecycle().catch((error)=>logError("workspace.lifecycle.error",error));
+  setInterval(async()=>{if(await addonEnabled("workspaces")) evaluateWorkspaceLifecycle().catch((error)=>logError("workspace.lifecycle.error",error));},60*60*1000).unref();
   logEvent("panel.server.start", {
     port: PORT,
     panelServiceName: PANEL_SERVICE_NAME,

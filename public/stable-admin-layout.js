@@ -62,6 +62,7 @@
 
   function moveConfiguration() {
     const panel = ensureConfigTab();
+    if (!panel) return;
     const host = q("#config-zone-main", panel);
     if (!host) return;
 

@@ -47,6 +47,14 @@
       lastOnline = status?.sorter?.ok === true;
       lastAllowed = access?.useSorter === true;
       state.sorterAccess = access || { useSorter:false, accessSorterSettings:false };
+      if (access?.workspace) {
+        state.workspaces = Array.isArray(state.workspaces) ? state.workspaces : [];
+        const index = state.workspaces.findIndex((item) => String(item.id) === String(access.workspace.id));
+        if (index >= 0) state.workspaces[index] = { ...state.workspaces[index], ...access.workspace };
+        else state.workspaces.push(access.workspace);
+        if (!state.workspaceId) state.workspaceId = String(access.workspace.id);
+        if (typeof sorterRenderWorkspaceSelector === "function") sorterRenderWorkspaceSelector();
+      }
       if ((!lastOnline || !lastAllowed) && document.getElementById("tab-sorter")?.classList.contains("active")) switchTab("files");
     } catch {
       lastOnline = false;

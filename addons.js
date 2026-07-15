@@ -13,7 +13,8 @@ export const ADDONS = {
     name: "OrbitFS Workspaces",
     description: "Branched workspaces, members, roles, invitations and workspace permissions.",
     folderName: "OrbitFS Workspaces",
-    requiredFiles: ["manifest.json", "public/workspace-ui.js"],
+    storageRoot: "F:\\OrbitFS Project\\Branched Workspaces",
+    requiredFiles: ["manifest.json", "public/workspace-ui.js", "public/workspace-permission-editor.js", "public/notification-center.js"],
   },
   sorter: {
     id: "sorter",

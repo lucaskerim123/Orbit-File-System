@@ -167,6 +167,14 @@ async function checkSorterAvailable() {
     online = false;
   }
   state.sorterAccess = access;
+  if (access.workspace) {
+    state.workspaces = Array.isArray(state.workspaces) ? state.workspaces : [];
+    const index = state.workspaces.findIndex((item) => String(item.id) === String(access.workspace.id));
+    if (index >= 0) state.workspaces[index] = { ...state.workspaces[index], ...access.workspace };
+    else state.workspaces.push(access.workspace);
+    if (!state.workspaceId) state.workspaceId = String(access.workspace.id);
+    if (typeof sorterRenderWorkspaceSelector === "function") sorterRenderWorkspaceSelector();
+  }
   if ((!online || !access.useSorter) && document.getElementById("tab-sorter")?.classList.contains("active")) switchTab("files");
   if (typeof refreshSorterHeader === "function") refreshSorterHeader();
   document.getElementById("infra-item-sorter")?.classList.remove("hidden");
@@ -2043,15 +2051,7 @@ setInterval(() => {
 }, 30000);
 
 
-// Multi-workspace UI is isolated from the legacy file browser so Main Workspace
-// and MCP behavior remain unchanged. The module injects its own controls and
-// adds X-Workspace-Id to existing fetch/XHR calls.
-{
-  const workspaceScript = document.createElement("script");
-  workspaceScript.src = "workspace-ui.js?v=20260715-sorterpermnav2";
-  workspaceScript.defer = true;
-  document.body.appendChild(workspaceScript);
-}
+// Workspace Mode is loaded by addon-manager.js only while the addon is attached.
 
 function renderBulkFileToolbar() {
   const toolbar = document.getElementById("bulk-file-toolbar");

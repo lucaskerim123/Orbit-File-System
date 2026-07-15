@@ -14,14 +14,13 @@
   function install() {
     loadScriptOnce("drive-upload.js", "data-orbit-drive-upload");
     loadScriptOnce("page-refresh.js", "data-orbit-page-refresh");
-    loadScriptOnce("stable-admin-layout.js?v=20260715-accesslock", "data-orbit-stable-admin-layout");
+    loadScriptOnce("stable-admin-layout.js?v=20260715-addons4", "data-orbit-stable-admin-layout");
     loadScriptOnce("nav-workspace-cleanup.js?v=20260715-notifications", "data-orbit-nav-workspace-cleanup");
-    loadScriptOnce("mobile-sorter-header.js?v=20260715-sorterpermnav2", "data-orbit-mobile-sorter-header");
-    loadScriptOnce("workspace-permission-editor.js?v=20260715-sorterpermnav2", "data-orbit-workspace-permission-editor");
-    loadScriptOnce("sorter-settings-ui.js?v=20260715-sorterpermnav2", "data-orbit-sorter-settings-ui");
+    loadScriptOnce("mobile-sorter-header.js?v=20260715-addons2", "data-orbit-mobile-sorter-header");
+    loadScriptOnce("addon-manager.js?v=20260715-addons4", "data-orbit-addon-manager");
+    loadScriptOnce("sorter-settings-ui.js?v=20260715-addons2", "data-orbit-sorter-settings-ui");
     loadScriptOnce("startup-config-cleanup.js", "data-orbit-startup-config-cleanup");
     loadScriptOnce("hive-health-ui.js", "data-orbit-hive-health-ui");
-    loadScriptOnce("notification-center.js?v=20260715-source", "data-orbit-notification-center");
   }
 
   if (document.readyState === "loading") {
