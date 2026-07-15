@@ -231,6 +231,28 @@ app.patch("/api/system/maintenance", requireAdmin, express.json(), async (req,re
   } catch(error){ res.status(400).json({error:error.message}); }
 });
 
+// --- Google Drive import: one shared OAuth client ID for the whole panel --
+// (an admin sets this once; every user still signs into their own Google
+// account through it - the client ID identifies the app, not the person).
+async function driveConfig() {
+  const row=(await query("SELECT setting_value FROM system_settings WHERE setting_key='google_drive_client_id' LIMIT 1")).rows[0];
+  const value=row?.setting_value && typeof row.setting_value==='object' ? row.setting_value : {};
+  return { clientId: value.clientId || null };
+}
+app.get("/api/drive-config", async (_req,res) => {
+  try { res.json(await driveConfig()); } catch(error){ res.status(500).json({error:error.message}); }
+});
+app.patch("/api/system/drive-config", requireAdmin, express.json(), async (req,res) => {
+  try {
+    const clientId=String(req.body?.clientId||"").trim();
+    if (!clientId) throw new Error("clientId is required");
+    const value={clientId,updatedBy:req.username};
+    await query("INSERT INTO system_settings(setting_key,setting_value,updated_at) VALUES('google_drive_client_id',$1::jsonb,now()) ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value,updated_at=now()",[JSON.stringify(value)]);
+    logEvent("panel.drive_config.updated",{user:req.username});
+    res.json(await driveConfig());
+  } catch(error){ res.status(400).json({error:error.message}); }
+});
+
 async function currentAddonStatuses() {
   const sorter = await addonStatus("sorter");
   let online = false;

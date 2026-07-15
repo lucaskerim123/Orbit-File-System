@@ -20,7 +20,24 @@
 
   const el = (id) => document.getElementById(id);
   const escapeHtml = (value) => String(value || "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-  const clientId = () => localStorage.getItem("orbitGoogleClientId") || "";
+
+  // The OAuth client ID identifies the app, not the person - it's shared
+  // panel-wide (admin sets it once via /api/system/drive-config) so nobody
+  // else has to configure anything. Each user still signs into their own
+  // Google account separately; that part of OAuth is already per-user.
+  let cachedClientId = null;
+  let clientIdLoaded = false;
+  async function getClientId() {
+    if (clientIdLoaded) return cachedClientId;
+    try {
+      const result = await api("/api/drive-config");
+      cachedClientId = result.clientId || null;
+    } catch {
+      cachedClientId = null;
+    }
+    clientIdLoaded = true;
+    return cachedClientId;
+  }
 
   function loadGoogleIdentity() {
     return new Promise((resolve, reject) => {
@@ -55,10 +72,14 @@
   }
 
   async function connectDrive() {
-    const id = clientId();
+    const id = await getClientId();
     if (!id) {
-      el("drive-setup").classList.remove("hidden");
-      setStatus("Add the Google OAuth client ID once, then connect.");
+      if (state.role === "admin") {
+        el("drive-setup").classList.remove("hidden");
+        setStatus("Add the Google OAuth client ID once, then connect.");
+      } else {
+        setStatus("Google Drive isn't set up yet. Ask an admin to add the client ID.", true);
+      }
       return;
     }
     try {
@@ -278,7 +299,7 @@
     drivePanel.id = "drive-import-panel";
     drivePanel.className = "drive-import-panel hidden";
     drivePanel.innerHTML = `
-      <div class="drive-import-head"><div><strong>Google Drive</strong><p class="muted-text">Browse and multi-select files without downloading them to your phone first.</p></div><button type="button" id="drive-connect-btn">Connect Google Drive</button></div>
+      <div class="drive-import-head"><div><strong>Google Drive</strong><p class="muted-text">Browse and multi-select files without downloading them to your phone first.</p></div><button type="button" id="drive-connect-btn">Connect Google Drive</button><button type="button" id="drive-change-client-btn" class="hidden">Change client ID</button></div>
       <div id="drive-setup" class="drive-setup hidden"><input id="drive-client-id" type="text" placeholder="Google OAuth client ID" autocomplete="off"><button type="button" id="drive-save-client">Save setup</button></div>
       <div id="drive-browser" class="drive-browser hidden">
         <div class="drive-browser-tools"><button type="button" id="drive-up-btn">Up</button><input id="drive-search" type="search" placeholder="Search this Drive folder" autocomplete="off"></div>
@@ -291,26 +312,41 @@
     dropzone.insertAdjacentElement("beforebegin", tabs);
     tabs.insertAdjacentElement("afterend", drivePanel);
 
+    if (state.role === "admin") el("drive-change-client-btn").classList.remove("hidden");
+
     el("upload-source-device").addEventListener("click", () => {
       el("upload-source-device").classList.add("active");
       el("upload-source-drive").classList.remove("active");
       drivePanel.classList.add("hidden");
       dropzone.classList.remove("hidden");
     });
-    el("upload-source-drive").addEventListener("click", () => {
+    el("upload-source-drive").addEventListener("click", async () => {
       el("upload-source-drive").classList.add("active");
       el("upload-source-device").classList.remove("active");
       drivePanel.classList.remove("hidden");
       dropzone.classList.add("hidden");
-      if (!clientId()) el("drive-setup").classList.remove("hidden");
+      if (!(await getClientId()) && state.role === "admin") el("drive-setup").classList.remove("hidden");
     });
     el("drive-connect-btn").addEventListener("click", connectDrive);
-    el("drive-save-client").addEventListener("click", () => {
+    el("drive-change-client-btn").addEventListener("click", () => {
+      el("drive-client-id").value = "";
+      el("drive-setup").classList.remove("hidden");
+      setStatus("Enter a new Google OAuth client ID to replace the current one.");
+    });
+    el("drive-save-client").addEventListener("click", async () => {
       const value = el("drive-client-id").value.trim();
       if (!value) return setStatus("Enter the Google OAuth client ID.", true);
-      localStorage.setItem("orbitGoogleClientId", value);
-      el("drive-setup").classList.add("hidden");
-      setStatus("Google Drive setup saved. Connect Drive now.");
+      try {
+        await api("/api/system/drive-config", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: value }) });
+        cachedClientId = value;
+        clientIdLoaded = true;
+        accessToken = "";
+        setConnected(false);
+        el("drive-setup").classList.add("hidden");
+        setStatus("Google Drive setup saved for everyone. Connect Drive now.");
+      } catch (err) {
+        setStatus(err.message || "Failed to save.", true);
+      }
     });
     el("drive-search").addEventListener("input", renderDriveFiles);
     el("drive-up-btn").addEventListener("click", async () => {
@@ -322,7 +358,6 @@
       await loadDriveFolder();
     });
     el("drive-import-btn").addEventListener("click", importSelected);
-    if (clientId()) el("drive-client-id").value = clientId();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, { once: true });
