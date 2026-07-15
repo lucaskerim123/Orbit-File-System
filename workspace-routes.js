@@ -306,15 +306,15 @@ export function workspaceRouter() {
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.get("/workspaces/:id/invitations", async (req,res) => {
-    try { res.json({ invitations:await listWorkspaceInvitations(req.params.id,req.userId,req.role) }); }
+    try { const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role); const access=await assertWorkspaceAdminAction(req,workspace,"manage_members"); res.json({ invitations:await listWorkspaceInvitations(req.params.id,req.userId,req.role,access.manage_members) }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.post("/workspaces/:id/invitations", express.json(), async (req,res) => {
-    try { res.status(201).json({ invitation:await inviteWorkspaceUser(req.params.id,req.body?.username,req.body?.permission,req.userId,req.role) }); }
+    try { const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role); const access=await assertWorkspaceAdminAction(req,workspace,"manage_members"); res.status(201).json({ invitation:await inviteWorkspaceUser(req.params.id,req.body?.username,req.body?.permission,req.userId,req.role,access.manage_members) }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.delete("/workspace-invitations/:id", async (req,res) => {
-    try { res.json(await revokeWorkspaceInvitation(req.params.id,req.userId,req.role)); }
+    try { const row=(await query("SELECT workspace_id FROM workspace_invitations WHERE id=$1",[req.params.id])).rows[0]; if(!row) throw new Error("Invitation not found"); const workspace=await getWorkspaceForUser(row.workspace_id,req.userId,req.role); const access=await assertWorkspaceAdminAction(req,workspace,"manage_members"); res.json(await revokeWorkspaceInvitation(req.params.id,req.userId,req.role,access.manage_members)); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.post("/workspaces", express.json(), async (req,res) => {
