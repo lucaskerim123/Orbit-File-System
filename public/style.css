@@ -1244,3 +1244,40 @@ table.data-table tr:hover td { background: var(--bg); }
   .sorter-item-class { grid-column: 2 / -1; white-space: normal; }
   .sorter-toolbar { grid-template-columns: 1fr 1fr; }
 }
+
+
+/* --- Workspace trash review --- */
+.workspace-trash-view {
+  margin-top: 0.8rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.workspace-trash-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.workspace-trash-head strong { color: var(--text); }
+.workspace-trash-list { display: grid; gap: 0.45rem; max-height: 420px; overflow: auto; }
+.workspace-trash-row {
+  display: grid;
+  grid-template-columns: minmax(0,1.4fr) minmax(120px,.55fr) minmax(180px,.8fr);
+  gap: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.workspace-trash-row > div { display: grid; gap: 0.22rem; min-width: 0; }
+.workspace-trash-row small,
+.workspace-trash-row span,
+.workspace-trash-row time { color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .workspace-trash-head { flex-direction: column; }
+  .workspace-trash-row { grid-template-columns: 1fr; }
+}

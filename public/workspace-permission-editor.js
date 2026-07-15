@@ -93,8 +93,9 @@
       for (const option of picker.options) {
         const workspace = state.workspaces.find((item) => String(item.id) === String(option.value));
         if (!workspace?.is_main) {
+          const unavailable = workspace?.drive_state === "offline" || (workspace?.status === "suspended" && state.role !== "admin");
           option.hidden = !enabled;
-          option.disabled = !enabled || option.disabled;
+          option.disabled = !enabled || unavailable;
         }
       }
     }
@@ -107,7 +108,10 @@
       card.dataset.mainWorkspace = String(!!workspace.is_main);
       card.hidden = !enabled && !workspace.is_main && state.role !== "admin";
       const open = card.querySelector(".workspace-open-btn");
-      if (open && !workspace.is_main) open.disabled = !enabled || open.disabled;
+      if (open && !workspace.is_main) {
+        const unavailable = workspace.drive_state === "offline" || (workspace.status === "suspended" && state.role !== "admin");
+        open.disabled = !enabled || unavailable;
+      }
     });
   }
 

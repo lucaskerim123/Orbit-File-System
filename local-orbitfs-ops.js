@@ -19,6 +19,15 @@ function decodeText(buf) {
 
 export function makeLocalOps(root) {
   const ROOT = path.resolve(root);
+  const PROTECTED_ROOT_FOLDERS = new Set(["_sorter"]);
+  function normalizeRelative(rel = "") {
+    return String(rel).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  }
+  function assertMutableRoot(rel, action) {
+    const normalized = normalizeRelative(rel);
+    if (PROTECTED_ROOT_FOLDERS.has(normalized)) throw new Error(`Cannot ${action} protected workspace folder "${normalized}"`);
+    return normalized;
+  }
   function safeResolve(rel) {
     const full = path.resolve(ROOT, rel || ".");
     if (full !== ROOT && !full.startsWith(ROOT + path.sep)) throw new Error("Path escapes the workspace root");
@@ -49,17 +58,24 @@ export function makeLocalOps(root) {
   }
   async function mkdir(filepath) { await fs.mkdir(safeResolve(filepath), { recursive: true }); }
   async function moveFile(from, to) {
+    assertMutableRoot(from, "move");
+    assertMutableRoot(to, "replace");
     const source = safeResolve(from);
     const target = safeResolve(to);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.rename(source, target);
   }
   async function deleteFile(filepath) {
+    assertMutableRoot(filepath, "delete");
     await fs.rm(safeResolve(filepath), { recursive: true, force: false });
   }
+  async function ensureSystemFolders() {
+    await fs.mkdir(safeResolve("_sorter"), { recursive:true });
+    await fs.mkdir(safeResolve("_trash"), { recursive:true });
+    return { sorter:safeResolve("_sorter"), trash:safeResolve("_trash") };
+  }
   async function ensureTrash() {
-    const trash = safeResolve("_trash");
-    await fs.mkdir(trash,{recursive:true});
+    const { trash } = await ensureSystemFolders();
     return trash;
   }
   async function emptyTrash() {
@@ -93,6 +109,7 @@ export function makeLocalOps(root) {
     return total;
   }
   async function moveToTrash(filepath, maxBytes=209715200) {
+    assertMutableRoot(filepath, "trash");
     const source = safeResolve(filepath);
     const stamp = `${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(16).slice(2, 8)}`;
     const trashDir = path.join(await ensureTrash(), stamp);
@@ -101,6 +118,33 @@ export function makeLocalOps(root) {
     await fs.rename(source, target);
     await pruneTrash(maxBytes);
     return { ok: true, trashPath: path.relative(ROOT, target).replace(/\\/g, "/") };
+  }
+  async function inspectPath(filepath) {
+    const full = safeResolve(filepath);
+    const stat = await fs.stat(full);
+    let size = 0;
+    async function walk(target) {
+      const current = await fs.stat(target);
+      if (current.isDirectory()) {
+        for (const child of await fs.readdir(target)) await walk(path.join(target,child));
+      } else size += current.size;
+    }
+    await walk(full);
+    return { type:stat.isDirectory()?"folder":"file", sizeBytes:size, mtime:stat.mtime.toISOString() };
+  }
+  async function listTrashItems() {
+    const trash = await ensureTrash();
+    const items = [];
+    for (const bucket of await fs.readdir(trash,{withFileTypes:true})) {
+      const bucketPath = path.join(trash,bucket.name);
+      const children = bucket.isDirectory() ? await fs.readdir(bucketPath,{withFileTypes:true}) : [bucket];
+      for (const child of children) {
+        const full = bucket.isDirectory() ? path.join(bucketPath,child.name) : bucketPath;
+        const info = await inspectPath(path.relative(ROOT,full));
+        items.push({ trashPath:path.relative(ROOT,full).replace(/\\/g,"/"), name:child.name, ...info });
+      }
+    }
+    return items.sort((a,b)=>String(b.mtime).localeCompare(String(a.mtime)));
   }
   async function downloadStream(filepath) {
     const full = safeResolve(filepath);
@@ -115,6 +159,7 @@ export function makeLocalOps(root) {
 
   return {
     ROOT, safeResolve, listFiles, readFile, writeFile, writeBuffer,
-    mkdir, moveFile, deleteFile, ensureTrash, emptyTrash, pruneTrash, moveToTrash, downloadStream, fileSize,
+    mkdir, moveFile, deleteFile, ensureSystemFolders, ensureTrash, emptyTrash, pruneTrash, moveToTrash,
+    inspectPath, listTrashItems, downloadStream, fileSize,
   };
 }

@@ -4,7 +4,7 @@ import { query } from "./db.js";
 
 const DEFAULT_QUOTA = 2684354560;
 const DEFAULT_MAX_WORKSPACES_PER_USER = 1;
-const BRANCHED_ROOT = "F:\\OrbitFS Project\\Branched Workshop";
+const BRANCHED_ROOT = "F:\\OrbitFS Project\\Branched Workspaces";
 
 function cleanName(value) {
   return String(value || "").trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, " ").replace(/\s+/g, " ").slice(0, 80);
@@ -90,6 +90,7 @@ export async function createWorkspace({ name, description, userId, username, sys
   const filesystemRoot = path.join(BRANCHED_ROOT, folderName);
   try {
     await fs.mkdir(path.join(filesystemRoot,"_trash"),{recursive:true});
+    await fs.mkdir(path.join(filesystemRoot,"_sorter"),{recursive:true});
     await query("UPDATE workspaces SET filesystem_root=$2,updated_at=now() WHERE id=$1",[id,filesystemRoot]);
     await query(
       `INSERT INTO workspace_members(workspace_id,user_id,permission)
@@ -308,11 +309,11 @@ export async function transferWorkspaceOwner(workspaceId, username, actorId, sys
 }
 
 
-export async function setMainWorkspaceVisibility(workspaceId, visible, actorId) {
+export async function setMainWorkspaceVisibility(workspaceId, visible, actorId, systemRole) {
   const result = await query("SELECT id,is_main,owner_id FROM workspaces WHERE id=$1 LIMIT 1",[workspaceId]);
   const workspace = result.rows[0];
   if (!workspace || !workspace.is_main) throw new Error("Main Workspace not found");
-  if (String(workspace.owner_id) !== String(actorId)) throw new Error("Only the Main Workspace owner can change drive visibility");
+  if (systemRole !== "admin" && String(workspace.owner_id) !== String(actorId)) throw new Error("Only the Main Workspace owner or an administrator can change drive visibility");
   await query("UPDATE workspaces SET is_visible=$2,updated_at=now() WHERE id=$1",[workspaceId,!!visible]);
   return getWorkspaceForUser(workspaceId,actorId,"admin");
 }

@@ -39,6 +39,36 @@ async function assertWorkspaceAction(req,filepath,action){
   return effective;
 }
 
+async function moveWorkspacePathToTrash(req, filepath) {
+  const clean = normalizeWorkspacePath(filepath);
+  await assertWorkspaceAction(req,clean,"delete");
+  const info = await req.workspaceOps.inspectPath(clean);
+  const result = await req.workspaceOps.moveToTrash(clean,Number(req.workspace.trash_limit_bytes||209715200));
+  await query(`INSERT INTO workspace_trash_events(
+      workspace_id,original_path,trash_path,item_name,item_type,size_bytes,deleted_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7)`,[
+      req.workspace.id,clean,result.trashPath,path.posix.basename(clean),info.type,info.sizeBytes,req.userId,
+    ]);
+  await touchWorkspaceActivity(req.workspace.id);
+  return {...result,originalPath:clean,...info};
+}
+
+async function listWorkspaceTrash(workspace, ops) {
+  const physical = await ops.listTrashItems();
+  const rows = (await query(`SELECT e.id,e.original_path,e.trash_path,e.item_name,e.item_type,e.size_bytes,
+      e.deleted_at,e.status,u.username AS deleted_by_username
+    FROM workspace_trash_events e LEFT JOIN users u ON u.id=e.deleted_by
+    WHERE e.workspace_id=$1 AND e.status='trashed' ORDER BY e.deleted_at DESC`,[workspace.id])).rows;
+  const byPath = new Map(rows.map(row=>[row.trash_path,row]));
+  return physical.map(item=>{
+    const event = byPath.get(item.trashPath);
+    return event ? {...item,...event,sizeBytes:Number(event.size_bytes||item.sizeBytes)} : {
+      ...item,id:null,original_path:null,item_name:item.name,item_type:item.type,
+      deleted_at:item.mtime,deleted_by_username:"Unknown (legacy trash item)",status:"trashed",
+    };
+  });
+}
+
 function permissions(workspace, systemRole) {
   if (systemRole === "admin" || ["owner","editor"].includes(workspace.permission)) return FULL;
   if (workspace.permission === "contributor") return { ...FULL, delete:false };
@@ -85,13 +115,12 @@ async function branched(req, res, next) {
     const workspace = await selectedWorkspace(req);
     assertNoTrashPath(req);
     if (workspace.is_main) {
-      const isOwner = String(workspace.owner_id) === String(req.userId);
-      if (!workspace.is_visible && !isOwner) {
+      const canBypassVisibility = req.role === "admin" || String(workspace.owner_id) === String(req.userId);
+      if (!workspace.is_visible && !canBypassVisibility) {
         return res.status(423).json({ error:"Drive offline", driveOffline:true });
       }
-      if (!isOwner && !["GET","HEAD"].includes(req.method)) {
-        return res.status(403).json({ error:"Main Workspace is read-only for this account" });
-      }
+      // Main Workspace remains Simple Mode. The existing file permission
+      // routes in server.js decide read/write/download/move/delete/create.
       return next("router");
     }
     if (!(await workspaceModeEnabled())) return res.status(423).json({ error:"Workspace Mode is disabled by an administrator", workspaceModeDisabled:true });
@@ -268,7 +297,7 @@ export function workspaceRouter() {
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.patch("/workspaces/:id/visibility", express.json(), async (req,res) => {
-    try { res.json({ workspace:await setMainWorkspaceVisibility(req.params.id,req.body?.visible,req.userId) }); }
+    try { res.json({ workspace:await setMainWorkspaceVisibility(req.params.id,req.body?.visible,req.userId,req.role) }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
   router.patch("/workspaces/:id", express.json(), async (req,res) => {
@@ -279,15 +308,28 @@ export function workspaceRouter() {
     try { res.json({ workspace:await getWorkspaceStorage(req.params.id,req.userId,req.role,req.query.refresh==="true") }); }
     catch(error) { res.status(400).json({error:error.message}); }
   });
+  router.get("/workspaces/:id/trash", async (req,res) => {
+    try {
+      const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role);
+      if(!workspace) throw new Error("Workspace not found or access denied");
+      if(workspace.is_main) throw new Error("Main Workspace trash is managed by Simple Mode");
+      const ops=makeLocalOps(workspace.filesystem_root);
+      await ops.ensureSystemFolders();
+      res.json({items:await listWorkspaceTrash(workspace,ops)});
+    } catch(error) { res.status(400).json({error:error.message}); }
+  });
   router.delete("/workspaces/:id/trash", async (req,res) => {
     try {
       const workspace=await getWorkspaceForUser(req.params.id,req.userId,req.role);
       if(!workspace) throw new Error("Workspace not found or access denied");
-      if(workspace.is_main) throw new Error("Main Workspace trash is managed by MCP");
+      if(workspace.is_main) throw new Error("Main Workspace trash is managed by Simple Mode");
       if(req.role!=="admin" && workspace.permission!=="owner") throw new Error("Owner access required");
       const ops=makeLocalOps(workspace.filesystem_root);
+      const items=await listWorkspaceTrash(workspace,ops);
       await ops.emptyTrash();
-      res.json({ok:true,workspace:await refreshWorkspaceUsage(workspace)});
+      await query(`UPDATE workspace_trash_events SET status='purged',purged_by=$2,purged_at=now()
+        WHERE workspace_id=$1 AND status='trashed'`,[workspace.id,req.userId]);
+      res.json({ok:true,purged:items.length,workspace:await refreshWorkspaceUsage(workspace)});
     } catch(error) { res.status(400).json({error:error.message}); }
   });
   router.patch("/workspaces/:id/owner", express.json(), async (req,res) => {
@@ -360,9 +402,9 @@ export function workspaceRouter() {
     try{
       const paths=Array.isArray(req.body?.paths)?req.body.paths.map(normalizeWorkspacePath):[];
       if(!paths.length) throw new Error("Select at least one item");
-      for(const item of paths){ await assertWorkspaceAction(req,item,"delete"); await fs.stat(req.workspaceOps.safeResolve(item)); }
-      for(const item of paths) await req.workspaceOps.moveToTrash(item,Number(req.workspace.trash_limit_bytes||209715200));
-      res.json({ok:true,trashed:paths.length,workspace:await refreshWorkspaceUsage(req.workspace)});
+      const trashed=[];
+      for(const item of paths) trashed.push(await moveWorkspacePathToTrash(req,item));
+      res.json({ok:true,trashed:trashed.length,items:trashed,workspace:await refreshWorkspaceUsage(req.workspace)});
     }catch(error){res.status(error.status||400).json({error:error.message});}
   });
   router.get("/files",branched,async(req,res)=>{
@@ -403,11 +445,8 @@ export function workspaceRouter() {
   router.delete("/file",branched,async(req,res)=>{
     if(!req.workspace)return;
     try{
-      const filepath=normalizeWorkspacePath(req.query.path);
-      await assertWorkspaceAction(req,filepath,"delete");
-      await req.workspaceOps.deleteFile(filepath);
-      await refreshWorkspaceUsage(req.workspace);
-      res.json({ok:true});
+      const result=await moveWorkspacePathToTrash(req,req.query.path);
+      res.json({...result,workspace:await refreshWorkspaceUsage(req.workspace)});
     }catch(error){res.status(error.status||400).json({error:error.message});}
   });
   router.post("/mkdir",express.json(),branched,async(req,res)=>{
@@ -432,12 +471,8 @@ export function workspaceRouter() {
   router.post("/trash",express.json(),branched,async(req,res)=>{
     if(!req.workspace)return;
     try{
-      const filepath=normalizeWorkspacePath(req.body.path);
-      await assertWorkspaceAction(req,filepath,"delete");
-      const result=await req.workspaceOps.moveToTrash(filepath,Number(req.workspace.trash_limit_bytes||209715200));
-      await touchWorkspaceActivity(req.workspace.id);
-      const workspace=await refreshWorkspaceUsage(req.workspace);
-      res.json({...result,workspace});
+      const result=await moveWorkspacePathToTrash(req,req.body.path);
+      res.json({...result,workspace:await refreshWorkspaceUsage(req.workspace)});
     }catch(error){res.status(error.status||400).json({error:error.message});}
   });
   for(const route of ["/preview","/download"]){

@@ -76,6 +76,14 @@ async function migratePermissions(client, workspaceId) {
   }
 }
 
+async function ensureWorkspaceFolders(client) {
+  const rows = (await client.query("SELECT filesystem_root FROM workspaces WHERE filesystem_root<>''")).rows;
+  for (const row of rows) {
+    await fs.mkdir(path.join(row.filesystem_root, "_trash"), { recursive:true });
+    await fs.mkdir(path.join(row.filesystem_root, "_sorter"), { recursive:true });
+  }
+}
+
 async function ensureWorkspaceSettings(client) {
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS suspension_reason text`);
   await client.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS storage_last_scanned_at timestamptz`);
@@ -125,6 +133,22 @@ async function ensureWorkspaceSettings(client) {
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY(workspace_id,relative_path,workspace_role)
   )`);
+  await client.query(`CREATE TABLE IF NOT EXISTS workspace_trash_events(
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    original_path text NOT NULL,
+    trash_path text NOT NULL,
+    item_name text NOT NULL,
+    item_type text NOT NULL CHECK(item_type IN ('file','folder')),
+    size_bytes bigint NOT NULL DEFAULT 0,
+    deleted_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    deleted_at timestamptz NOT NULL DEFAULT now(),
+    status text NOT NULL DEFAULT 'trashed' CHECK(status IN ('trashed','restored','purged')),
+    purged_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    purged_at timestamptz
+  )`);
+  await client.query(`CREATE INDEX IF NOT EXISTS workspace_trash_events_workspace_status_idx
+    ON workspace_trash_events(workspace_id,status,deleted_at DESC)`);
   await client.query(`INSERT INTO system_settings(setting_key,setting_value) VALUES
     ('workspace_mode_enabled','true'::jsonb),
     ('sorter_allow_automatic','false'::jsonb),
@@ -153,6 +177,7 @@ export async function ensureDatabase() {
       const workspaceId = await ensureMainWorkspace(client);
       await migratePermissions(client, workspaceId);
       await ensureWorkspaceSettings(client);
+      await ensureWorkspaceFolders(client);
       await client.query("COMMIT");
       initialized = true;
     } catch (error) {

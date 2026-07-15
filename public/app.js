@@ -58,7 +58,7 @@ const SHEET_EXTENSIONS = new Set(["xlsx", "xls", "csv"]);
 // is settled:
 //   "_system", "_sorter", "_trash", "0. Core", "1. Legal",
 //   "2. Wellbeing", "_media"
-const PROTECTED_ROOT_FOLDERS = new Set([]);
+const PROTECTED_ROOT_FOLDERS = new Set(["_sorter"]);
 
 function extOf(name) {
   const i = name.lastIndexOf(".");

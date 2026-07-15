@@ -390,17 +390,18 @@ function renderWorkspaceAdmin() {
 
 function buildWorkspaceAdminCard(workspace) {
   const isOwner = workspace.permission === "owner";
-  const canManage = workspace.is_main ? isOwner : (state.role === "admin" || isOwner);
+  const isAdmin = state.role === "admin";
+  const canManage = isAdmin || isOwner;
   const isSuspended = workspace.status === "suspended";
   const mainOffline = workspace.is_main && workspace.is_visible === false;
   const branchOffline = !workspace.is_main && workspace.drive_state === "offline";
-  const canOpen = !branchOffline && (!isSuspended || state.role === "admin") && (!mainOffline || isOwner);
+  const canOpen = !branchOffline && (!isSuspended || isAdmin) && (!mainOffline || isOwner || isAdmin);
   const card = document.createElement("article");
   card.className = `workspace-admin-card${isSuspended ? " workspace-suspended" : ""}`;
   card.innerHTML = `
     <div class="workspace-admin-head">
       <div><strong>${escapeWorkspaceHtml(workspace.name)}</strong><span>${workspace.is_main ? (mainOffline ? "Drive offline" : "Main Workspace") : (branchOffline ? "Drive offline" : escapeWorkspaceHtml(workspace.status))}</span></div>
-      <button type="button" class="workspace-open-btn" ${canOpen ? "" : "disabled"}>${branchOffline ? "Drive offline" : (mainOffline && !isOwner ? "Drive offline" : (isSuspended && state.role !== "admin" ? "Suspended" : "Open"))}</button>
+      <button type="button" class="workspace-open-btn" ${canOpen ? "" : "disabled"}>${branchOffline ? "Drive offline" : (mainOffline && !isOwner && !isAdmin ? "Drive offline" : (isSuspended && !isAdmin ? "Suspended" : "Open"))}</button>
     </div>
     <dl>
       <div><dt>Owner</dt><dd>${escapeWorkspaceHtml(workspace.owner_username || "—")}</dd></div>
@@ -417,7 +418,7 @@ function buildWorkspaceAdminCard(workspace) {
     <div class="workspace-admin-actions">
       <button type="button" class="workspace-storage-btn">Storage details</button>
       ${canManage ? '<button type="button" class="workspace-members-btn">Members</button>' : ""}
-      ${workspace.is_main && isOwner ? `<button type="button" class="workspace-visibility-btn">${mainOffline ? "Bring drive online" : "Hide drive"}</button>` : ""}
+      ${workspace.is_main && canManage ? `<button type="button" class="workspace-visibility-btn">${mainOffline ? "Bring drive online" : "Hide drive"}</button>` : ""}
       ${!workspace.is_main && canManage ? `<button type="button" class="workspace-drive-state-btn">${branchOffline ? "Bring drive online" : "Take drive offline"}</button>` : ""}
       ${!workspace.is_main && canManage ? '<button type="button" class="workspace-edit-btn">Settings</button>' : ""}
     </div>
@@ -474,18 +475,44 @@ async function showWorkspaceStorage(workspace, card) {
       <div><span>Trash</span><strong>${workspaceFormatBytes(updated.trash_used_bytes||0)}</strong></div>
     </div>
     <p class="muted-text">Last scanned: ${updated.storage_last_scanned_at ? new Date(updated.storage_last_scanned_at).toLocaleString() : "Not yet scanned"}</p>
-    <div class="workspace-storage-actions"><button type="button" class="workspace-refresh-storage">Refresh</button>${canEmpty ? '<button type="button" class="danger workspace-empty-trash">Empty trash</button>' : ""}</div>
+    <div class="workspace-storage-actions"><button type="button" class="workspace-refresh-storage">Refresh</button>${!updated.is_main ? '<button type="button" class="workspace-view-trash">View trash</button>' : ""}${canEmpty ? '<button type="button" class="danger workspace-empty-trash">Empty trash</button>' : ""}</div>
+    <div class="workspace-trash-view hidden"></div>
     <p class="error workspace-detail-error"></p>`;
     detail.querySelector(".workspace-refresh-storage").addEventListener("click",()=>showWorkspaceStorage(updated,card));
+    detail.querySelector(".workspace-view-trash")?.addEventListener("click",()=>loadWorkspaceTrash(updated,detail));
     detail.querySelector(".workspace-empty-trash")?.addEventListener("click",async()=>{
-      if(!confirm("Permanently empty this workspace trash?")) return;
-      try { await api(`/api/workspaces/${encodeURIComponent(updated.id)}/trash`,{method:"DELETE"}); await loadOrbitWorkspaces(updated.id); await showWorkspaceStorage(updated,card); }
-      catch(error){ detail.querySelector(".workspace-detail-error").textContent=error.message; }
+      const errorHost=detail.querySelector(".workspace-detail-error");
+      try {
+        const trash=await api(`/api/workspaces/${encodeURIComponent(updated.id)}/trash`);
+        const count=trash.items?.length||0;
+        if(!count){ errorHost.textContent="Workspace trash is empty."; return; }
+        if(!confirm(`Permanently delete ${count} trash item${count===1?"":"s"}? Review the trash list first if needed.`)) return;
+        await api(`/api/workspaces/${encodeURIComponent(updated.id)}/trash`,{method:"DELETE"});
+        await loadOrbitWorkspaces(updated.id); await showWorkspaceStorage(updated,card);
+      } catch(error){ errorHost.textContent=error.message; }
     });
     const index=state.workspaces.findIndex(item=>String(item.id)===String(updated.id));
     if(index>=0) state.workspaces[index]=updated;
     renderWorkspaceBar();
   } catch(error) { detail.innerHTML=`<p class="error">${escapeWorkspaceHtml(error.message)}</p>`; }
+}
+
+async function loadWorkspaceTrash(workspace, detail) {
+  const host=detail.querySelector(".workspace-trash-view");
+  if(!host) return;
+  host.classList.remove("hidden");
+  host.innerHTML='<p class="muted-text">Loading workspace trash…</p>';
+  try {
+    const result=await api(`/api/workspaces/${encodeURIComponent(workspace.id)}/trash`);
+    const items=result.items||[];
+    if(!items.length){ host.innerHTML='<p class="muted-text">Workspace trash is empty.</p>'; return; }
+    host.innerHTML=`<div class="workspace-trash-head"><strong>${items.length} trash item${items.length===1?"":"s"}</strong><span>Review before permanently emptying.</span></div><div class="workspace-trash-list">${items.map(item=>`
+      <article class="workspace-trash-row">
+        <div><strong>${escapeWorkspaceHtml(item.item_name||item.name||"Unknown item")}</strong><small>${escapeWorkspaceHtml(item.original_path||"Original path unavailable")}</small></div>
+        <div><span>${escapeWorkspaceHtml(item.item_type||item.type||"item")}</span><span>${workspaceFormatBytes(item.sizeBytes||item.size_bytes||0)}</span></div>
+        <div><span>Deleted by ${escapeWorkspaceHtml(item.deleted_by_username||"Unknown")}</span><time>${item.deleted_at?new Date(item.deleted_at).toLocaleString():"Unknown time"}</time></div>
+      </article>`).join("")}</div>`;
+  } catch(error){ host.innerHTML=`<p class="error">${escapeWorkspaceHtml(error.message)}</p>`; }
 }
 
 async function showWorkspaceMembers(workspace, card) {
