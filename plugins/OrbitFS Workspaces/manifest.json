@@ -1,0 +1,8 @@
+﻿{
+  "id": "workspaces",
+  "name": "OrbitFS Workspaces",
+  "version": "1.0.0",
+  "type": "panel-addon",
+  "entry": "public/workspace-ui.js",
+  "description": "Branched workspaces, members, invitations, permissions, trash and lifecycle controls."
+}
