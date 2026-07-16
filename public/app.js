@@ -2311,6 +2311,9 @@ setInterval(() => {
   refreshStatus();
   if (state.token) checkSorterAvailable(); // tab tracks the service coming and going
 }, 30000);
+setInterval(() => {
+  if (state.token) loadLicensePanel(false);
+}, 60000);
 
 
 // Workspace Mode is loaded by addon-manager.js only while the addon is attached.
