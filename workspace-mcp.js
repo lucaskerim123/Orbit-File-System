@@ -63,6 +63,30 @@ export async function revokeWorkspaceMcpAccess(workspaceId, targetUserId, actorI
   return listWorkspaceMcpGrants(workspaceId, actorId, systemRole);
 }
 
+// Called by orbitfs-mcp (server-to-server, see /internal/mcp-identity in
+// server.js) to resolve a connecting Cloudflare Access email into a role.
+// System admins get "owner" (full access, current behavior, unrestricted).
+// Anyone else needs an active grant to get "guest" - scoped to that one
+// workspace. No grant = no access, even if Cloudflare let the request through
+// (e.g. a stale/removed grant whose Cloudflare policy update failed).
+export async function resolveMcpIdentity(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return { role: null };
+  const user = (await query("SELECT id,role FROM users WHERE lower(email)=$1 AND status='active' LIMIT 1", [normalized])).rows[0];
+  if (!user) return { role: null };
+  if (user.role === "admin") return { role: "owner", userId: user.id };
+  const grant = (await query(
+    `SELECT g.workspace_id,w.filesystem_root,w.name
+     FROM workspace_mcp_grants g
+     JOIN workspaces w ON w.id=g.workspace_id
+     WHERE g.user_id=$1 AND g.revoked_at IS NULL AND w.mcp_ui_enabled=true AND w.status='active'
+     ORDER BY g.granted_at DESC LIMIT 1`,
+    [user.id]
+  )).rows[0];
+  if (!grant) return { role: null, userId: user.id };
+  return { role: "guest", userId: user.id, workspaceId: grant.workspace_id, workspaceName: grant.name, workspaceRoot: grant.filesystem_root };
+}
+
 // Used when an admin disables MCP for the whole workspace - best-effort per
 // grant so one Cloudflare failure doesn't block revoking the rest; only
 // grants that actually cleared in Cloudflare get marked revoked in the DB,
