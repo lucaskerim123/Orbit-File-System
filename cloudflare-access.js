@@ -1,12 +1,12 @@
-// Automates the "MCP Guests" Access policy on the Master Hive MCP Access
+// Automates the "MCP Members" Access policy on the Master Hive MCP Access
 // Application, so granting a workspace member MCP access doesn't require
 // manually adding them in the Cloudflare dashboard. This only ever touches
 // its own dedicated policy (created lazily on first grant) - it never reads
 // or writes any other policy on the Application, so a bug here can't affect
 // the owner's own login rule.
 const CF_API_BASE = "https://api.cloudflare.com/client/v4";
-const GUEST_POLICY_NAME = "MCP Guests";
-const GUEST_POLICY_PRECEDENCE = 100;
+const MEMBER_POLICY_NAME = "MCP Members";
+const MEMBER_POLICY_PRECEDENCE = 100;
 
 export function cfConfigured() {
   return !!(process.env.CF_API_TOKEN && process.env.CF_ACCOUNT_ID && process.env.CF_ACCESS_APP_ID);
@@ -44,26 +44,26 @@ function forUpdate(policy, overrides = {}) {
   };
 }
 
-async function findGuestPolicy() {
+async function findMemberPolicy() {
   const policies = await cfRequest(policiesPath());
-  return (policies || []).find((p) => p.name === GUEST_POLICY_NAME) || null;
+  return (policies || []).find((p) => p.name === MEMBER_POLICY_NAME) || null;
 }
 
 function hasEmail(policy, email) {
   return (policy.include || []).some((rule) => rule.email?.email?.toLowerCase() === email);
 }
 
-export async function addGuestEmail(email) {
+export async function addMemberEmail(email) {
   const normalized = String(email || "").trim().toLowerCase();
   if (!normalized) throw new Error("Email is required to grant MCP access");
-  const existing = await findGuestPolicy();
+  const existing = await findMemberPolicy();
   if (!existing) {
     return cfRequest(policiesPath(), {
       method: "POST",
       body: JSON.stringify({
-        name: GUEST_POLICY_NAME,
+        name: MEMBER_POLICY_NAME,
         decision: "allow",
-        precedence: GUEST_POLICY_PRECEDENCE,
+        precedence: MEMBER_POLICY_PRECEDENCE,
         include: [{ email: { email: normalized } }],
       }),
     });
@@ -73,9 +73,9 @@ export async function addGuestEmail(email) {
   return cfRequest(policiesPath(existing.id), { method: "PUT", body: JSON.stringify(forUpdate(existing, { include })) });
 }
 
-export async function removeGuestEmail(email) {
+export async function removeMemberEmail(email) {
   const normalized = String(email || "").trim().toLowerCase();
-  const existing = await findGuestPolicy();
+  const existing = await findMemberPolicy();
   if (!existing) return null;
   const include = (existing.include || []).filter((rule) => rule.email?.email?.toLowerCase() !== normalized);
   return cfRequest(policiesPath(existing.id), { method: "PUT", body: JSON.stringify(forUpdate(existing, { include })) });

@@ -1,6 +1,6 @@
 import { query } from "./db.js";
 import { getWorkspaceForUser } from "./workspaces.js";
-import { addGuestEmail, removeGuestEmail } from "./cloudflare-access.js";
+import { addMemberEmail, removeMemberEmail } from "./cloudflare-access.js";
 import { createNotification } from "./notifications.js";
 
 function assertOwnerOrAdmin(workspace, systemRole) {
@@ -33,7 +33,7 @@ export async function grantWorkspaceMcpAccess(workspaceId, targetUserId, actorId
   )).rows[0];
   if (!member) throw new Error("User is not a member of this workspace");
   if (!member.email) throw new Error(`${member.username} has no email on file - add one before granting MCP access`);
-  await addGuestEmail(member.email);
+  await addMemberEmail(member.email);
   await query(
     `INSERT INTO workspace_mcp_grants(workspace_id,user_id,granted_by,granted_at,revoked_at)
      VALUES($1,$2,$3,now(),NULL)
@@ -53,7 +53,7 @@ export async function revokeWorkspaceMcpAccess(workspaceId, targetUserId, actorI
   if (!workspace) throw new Error("Workspace not found or access denied");
   assertOwnerOrAdmin(workspace, systemRole);
   const member = (await query(`SELECT email,username FROM users WHERE id=$1`, [targetUserId])).rows[0];
-  if (member?.email) await removeGuestEmail(member.email);
+  if (member?.email) await removeMemberEmail(member.email);
   await query(`UPDATE workspace_mcp_grants SET revoked_at=now() WHERE workspace_id=$1 AND user_id=$2 AND revoked_at IS NULL`, [workspaceId, targetUserId]);
   await createNotification({
     recipientUserId: targetUserId, workspaceId, actorUserId: actorId,
@@ -66,7 +66,7 @@ export async function revokeWorkspaceMcpAccess(workspaceId, targetUserId, actorI
 // Called by orbitfs-mcp (server-to-server, see /internal/mcp-identity in
 // server.js) to resolve a connecting Cloudflare Access email into a role.
 // System admins get "owner" (full access, current behavior, unrestricted).
-// Anyone else needs an active grant to get "guest" - scoped to that one
+// Anyone else needs an active grant to get "member" - scoped to that one
 // workspace. No grant = no access, even if Cloudflare let the request through
 // (e.g. a stale/removed grant whose Cloudflare policy update failed).
 export async function resolveMcpIdentity(email) {
@@ -84,7 +84,7 @@ export async function resolveMcpIdentity(email) {
     [user.id]
   )).rows[0];
   if (!grant) return { role: null, userId: user.id };
-  return { role: "guest", userId: user.id, workspaceId: grant.workspace_id, workspaceName: grant.name, workspaceRoot: grant.filesystem_root };
+  return { role: "member", userId: user.id, workspaceId: grant.workspace_id, workspaceName: grant.name, workspaceRoot: grant.filesystem_root };
 }
 
 // Used when an admin disables MCP for the whole workspace - best-effort per
@@ -99,7 +99,7 @@ export async function revokeAllWorkspaceMcpGrants(workspaceId) {
   const failed = [];
   for (const grant of grants) {
     try {
-      if (grant.email) await removeGuestEmail(grant.email);
+      if (grant.email) await removeMemberEmail(grant.email);
       await query(`UPDATE workspace_mcp_grants SET revoked_at=now() WHERE workspace_id=$1 AND user_id=$2`, [workspaceId, grant.user_id]);
     } catch {
       failed.push(grant.username);
