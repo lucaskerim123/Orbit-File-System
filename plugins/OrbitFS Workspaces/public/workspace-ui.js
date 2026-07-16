@@ -146,6 +146,7 @@ async function loadOrbitWorkspaces(preferredId = state.workspaceId) {
     renderAdminStorageOverview();
     renderCompactWorkspaceTrashList();
     loadWorkspaceInvitations();
+    loadWorkspaceStorageRequests();
     loadWorkspaceTransferRequests();
   } catch (error) {
     const storage = document.getElementById("workspace-storage");
@@ -790,6 +791,69 @@ async function showWorkspaceSettings(workspace, card) {
   });
 }
 
+
+async function loadWorkspaceStorageRequests() {
+  const host = document.getElementById("workspace-storage-requests");
+  if (!host || !state.token) return;
+  try {
+    const { requests } = await api("/api/workspace-storage-requests");
+    const owned = state.workspaces.filter((workspace) => !workspace.is_main && workspace.permission === "owner");
+    const canRequest = owned.length > 0;
+    host.innerHTML = `<h3>Storage change requests</h3>
+      ${canRequest ? `<form class="workspace-storage-request-inline">
+        <label>Workspace<select name="workspaceId">${owned.map((workspace) => `<option value="${escapeWorkspaceHtml(workspace.id)}">${escapeWorkspaceHtml(workspace.name)} · ${workspaceStorageSummary(workspace)}</option>`).join("")}</select></label>
+        <label>Requested size (GB)<input name="quotaGb" type="number" min="0" step="0.1" required /></label>
+        <label>Message to admin<textarea name="message" rows="2" maxlength="1000" placeholder="Upgrade/downgrade reason"></textarea></label>
+        <button type="submit" class="primary">Request storage change</button>
+        <small>Admin manually changes storage, then approves or denies with a message.</small>
+      </form>` : `<p class="muted-text">${state.role === "admin" ? "Admin request queue." : "Storage requests appear here when you own a workspace."}</p>`}
+      <div class="workspace-storage-request-list"></div>`;
+    host.querySelector(".workspace-storage-request-inline")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await api(`/api/workspaces/${encodeURIComponent(form.elements.workspaceId.value)}/storage-request`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestedQuotaBytes: Math.round(Number(form.elements.quotaGb.value || 0) * 1073741824), message: form.elements.message.value.trim() }),
+        });
+        form.reset();
+        await loadWorkspaceStorageRequests();
+      } catch (error) { alert(error.message); }
+      finally { button.disabled = false; }
+    });
+    const list = host.querySelector(".workspace-storage-request-list");
+    if (!requests.length) { list.innerHTML = '<p class="muted-text">No storage requests yet.</p>'; return; }
+    for (const request of requests) {
+      const row = document.createElement("div");
+      row.className = "workspace-transfer-row workspace-storage-request-row";
+      row.innerHTML = `<span><strong>${escapeWorkspaceHtml(request.workspace_name)}</strong><small>${escapeWorkspaceHtml(request.status)} · ${escapeWorkspaceHtml(request.request_type)} · ${workspaceFormatBytes(request.current_quota_bytes || 0)} → ${workspaceFormatBytes(request.requested_quota_bytes)} · ${escapeWorkspaceHtml(request.requested_by_username || "owner")}</small>${request.message ? `<small>${escapeWorkspaceHtml(request.message)}</small>` : ""}${request.admin_message ? `<small>Admin: ${escapeWorkspaceHtml(request.admin_message)}</small>` : ""}</span><div></div>`;
+      const actions = row.lastElementChild;
+      if (state.role === "admin" && request.status === "pending") {
+        for (const decision of ["approve","deny"]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = decision === "approve" ? "Approve" : "Deny";
+          if (decision === "approve") button.className = "primary";
+          button.addEventListener("click", async () => {
+            const message = prompt(decision === "approve" ? "Approval message to owner" : "Denial message to owner", "");
+            if (message === null) return;
+            await api(`/api/workspace-storage-requests/${encodeURIComponent(request.id)}/respond`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ decision, message }) });
+            await loadOrbitWorkspaces();
+          });
+          actions.appendChild(button);
+        }
+      } else if (request.status === "pending") {
+        const cancel = document.createElement("button");
+        cancel.type = "button"; cancel.textContent = "Cancel request";
+        cancel.addEventListener("click", async () => { await api(`/api/workspace-storage-requests/${encodeURIComponent(request.id)}`, { method:"DELETE" }); await loadWorkspaceStorageRequests(); });
+        actions.appendChild(cancel);
+      }
+      list.appendChild(row);
+    }
+  } catch (error) { host.innerHTML = `<p class="error">${escapeWorkspaceHtml(error.message)}</p>`; }
+}
 
 async function loadWorkspaceTransferRequests() {
   const host = document.getElementById("workspace-transfer-requests");

@@ -30,7 +30,7 @@
   }
   async function loadWorkspaceAddonAssets() {
     await loadScript(
-      "/addon-assets/workspaces/workspace-ui.js?v=20260716-reachfix",
+      "/addon-assets/workspaces/workspace-ui.js?v=20260716-storagevisible",
       "workspaces-ui"
     );
     await loadScript(
