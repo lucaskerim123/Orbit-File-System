@@ -101,4 +101,73 @@ old = '''function showPanelLicenseBlocked(license = {}) {
     locked_elsewhere: "This licence is locked to another OrbitFS installation.",
     not_activated: "This installation has not been activated.",
   };
-'''}
+'''}start = app.index('function showPanelLicenseBlocked(license = {}) {')
+end = app.index('\nfunction hidePanelLicenseBlocked()', start)
+replacement = '''function showPanelLicenseBlocked(license = {}) {
+  showLicenseOnlySetup(license);
+}
+'''
+app = app[:start] + replacement + app[end:]
+
+anchor = 'let setupLoginCreds = null;\n'
+insert = '''let setupLoginCreds = null;
+let setupMode = "full";
+
+function showLicenseOnlySetup(license = {}) {
+  setupMode = "license";
+  hidePanelLicenseBlocked();
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("setup-done").classList.add("hidden");
+  const setup = document.getElementById("setup");
+  const form = document.getElementById("setup-form");
+  form.classList.remove("hidden");
+  const keep = new Set([
+    form.querySelector(".brand"), form.querySelector(".brand-subtitle"),
+    form.querySelector('label[for="setup-license-key"]'),
+    document.getElementById("setup-license-key"),
+    document.getElementById("setup-license-key")?.nextElementSibling,
+    document.getElementById("setup-license-server-toggle"),
+    document.getElementById("setup-license-server-fields"),
+    form.querySelector('button[type="submit"]'),
+    document.getElementById("setup-error"), document.getElementById("setup-status"),
+  ].filter(Boolean));
+  [...form.children].forEach((child) => child.classList.toggle("hidden", !keep.has(child)));
+'''
+assert anchor in app, "setup state anchor not found"
+app = app.replace(anchor, insert, 1)
+start = app.index('function showPanelLicenseBlocked(license = {}) {')
+end = app.index('\nfunction hidePanelLicenseBlocked()', start)
+replacement = '''function showPanelLicenseBlocked(license = {}) {
+  showLicenseOnlySetup(license);
+}
+'''
+app = app[:start] + replacement + app[end:]
+
+anchor = 'let setupLoginCreds = null;\n'
+insert = '''let setupLoginCreds = null;
+let setupMode = "full";
+
+function showLicenseOnlySetup(license = {}) {
+  setupMode = "license";
+  hidePanelLicenseBlocked();
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("setup-done").classList.add("hidden");
+  const setup = document.getElementById("setup");
+  const form = document.getElementById("setup-form");
+  form.classList.remove("hidden");
+  const keep = new Set([
+    form.querySelector(".brand"), form.querySelector(".brand-subtitle"),
+    form.querySelector('label[for="setup-license-key"]'),
+    document.getElementById("setup-license-key"),
+    document.getElementById("setup-license-key")?.nextElementSibling,
+    document.getElementById("setup-license-server-toggle"),
+    document.getElementById("setup-license-server-fields"),
+    form.querySelector('button[type="submit"]'),
+    document.getElementById("setup-error"), document.getElementById("setup-status"),
+  ].filter(Boolean));
+  [...form.children].forEach((child) => child.classList.toggle("hidden", !keep.has(child)));
+'''
+assert anchor in app, "setup state anchor not found"
+app = app.replace(anchor, insert, 1)
