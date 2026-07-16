@@ -168,9 +168,7 @@ export async function runSetup(input, { panelDir, hiveServerDir, panelPort }) {
     process.env.ORBITFS_LICENSE_API_URL = licenseApiUrl;
     process.env.ORBITFS_LICENSE_KEY = licenseKey;
     process.env.ORBITFS_LICENSE_ENFORCE = "true";
-    const activationComponents = [COMPONENTS.PANEL, COMPONENTS.MCP];
-    if (await addonEnabled("workspaces")) activationComponents.push(COMPONENTS.WORKSPACES);
-    if (await addonEnabled("sorter")) activationComponents.push(COMPONENTS.SORTER);
+    const activationComponents = [COMPONENTS.PANEL];
     licenseActivation = await activateComponents(licenseKey, activationComponents);
   }
 

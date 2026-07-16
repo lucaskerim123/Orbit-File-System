@@ -116,7 +116,7 @@ function api(path, opts = {}) {
       error.status = resp.status;
       error.license = body.license || null;
       if (resp.status === 403 && error.code === "LICENSE_REQUIRED"
-          && (!error.license?.component || error.license.component === "orbitfs_panel")) {
+          && error.license?.component === "orbitfs_panel") {
         showPanelLicenseBlocked(error.license || { reason: body.error });
       }
       throw error;
@@ -1575,7 +1575,7 @@ async function activatePanelLicense(inputId, messageId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         licenseKey,
-        components: ["orbitfs_panel", "orbitfs_mcp"],
+        components: ["orbitfs_panel"],
       }),
     });
     if (input) input.value = "";
@@ -2151,7 +2151,7 @@ function setupLicenseError(body = {}) {
     LICENSE_BLOCKED: "This licence has been blocked by the administrator.",
     LICENSE_EXPIRED: "This licence has expired.",
     locked_elsewhere: "This licence is already locked to another installation.",
-    LICENSE_COMPONENT_DENIED: "This licence does not include Panel and MCP.",
+    LICENSE_COMPONENT_DENIED: "This licence does not include Panel.",
   };
   return messages[body.code] || body.error || "Setup failed";
 }

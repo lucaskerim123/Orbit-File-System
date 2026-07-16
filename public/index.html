@@ -49,12 +49,12 @@
 
       <label class="field-label" for="setup-license-key">OrbitFS licence key</label>
       <input id="setup-license-key" type="text" placeholder="OFS-XXXX-XXXX-XXXX-XXXX" pattern="OFS-[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}" maxlength="24" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" />
-      <p class="field-hint">The key is validated and Panel plus MCP are bound to this installation during setup.</p>
+      <p class="field-hint">The key is validated and Panel is bound to this installation during setup. MCP, Workspaces, and Sorter are controlled by the licence manager.</p>
 
       <button type="button" id="setup-license-server-toggle" class="link-btn setup-advanced-toggle">? Advanced: licence server</button>
       <div id="setup-license-server-fields" class="hidden">
         <label class="field-label" for="setup-license-api-url">Licence API URL</label>
-        <input id="setup-license-api-url" type="url" value="https://orbitfs-licence-admin-function.azurewebsites.net" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <input id="setup-license-api-url" type="url" value="https://orbitfs-licence-api.azurewebsites.net" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
         <p class="field-hint">Only change this when using a different OrbitFS licence server.</p>
       </div>
 
@@ -542,8 +542,6 @@
           <div class="breaker-row">
             <div class="breaker-name">Cloudflare Tunnel</div>
             <div class="btn-group">
-              <button class="control-btn" data-target="tunnel" data-action="start">Start</button>
-              <button class="control-btn danger" data-target="tunnel" data-action="stop">Stop</button>
               <button class="control-btn" data-target="tunnel" data-action="restart">Restart</button>
             </div>
           </div>

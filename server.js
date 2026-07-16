@@ -78,8 +78,6 @@ function enforceLicensedServices(summary) {
   }
 }
 
-startLicenseHeartbeat({ onUpdate: enforceLicensedServices, onError: (error) => logError("license.heartbeat", error) });
-
 const POWERSHELL_CANDIDATES = [
   process.env.PANEL_POWERSHELL_PATH,
   "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -240,12 +238,7 @@ app.post("/api/license/activate", express.json(), async (req, res) => {
         if (session.role !== "admin") return res.status(403).json({ error: "Admin access required" });
       }
     }
-    const components = new Set(Array.isArray(req.body?.components)
-      ? req.body.components
-      : [COMPONENTS.PANEL, COMPONENTS.MCP]);
-    if (await addonEnabled("workspaces")) components.add(COMPONENTS.WORKSPACES);
-    if (await addonEnabled("sorter")) components.add(COMPONENTS.SORTER);
-    const activationComponents = [...components];
+    const activationComponents = [COMPONENTS.PANEL];
     const license = await activateComponents(req.body?.licenseKey, activationComponents);
     logEvent("panel.license.activated", { components: activationComponents, keyHint: license.keyHint });
     res.json({ ok: true, license });
@@ -443,12 +436,23 @@ app.get("/api/addons", requireAdmin, async (req,res) => {
 });
 app.post("/api/addons/:id/attach", requireAdmin, async (req,res) => {
   try {
-    const component = ADDON_LICENSE_COMPONENTS[req.params.id];
-    if (component && isLicenseEnforced()) await activateComponents(null, [component]);
-    const addon = await attachAddon(req.params.id);
-    logEvent("panel.addon.attached", { addon:req.params.id, user:req.username });
-    res.json({ addon, addons:await currentAddonStatuses() });
-  } catch (error) { res.status(error.status || 400).json({ error:error.message }); }
+    const id = req.params.id;
+    const before = await addonStatus(id).catch(() => null);
+    const addon = before?.attached ? before : await attachAddon(id);
+    const component = ADDON_LICENSE_COMPONENTS[id];
+    if (component && isLicenseEnforced()) {
+      try {
+        await activateComponents(null, [component]);
+      } catch (error) {
+        if (!before?.attached) await detachAddon(id).catch(() => {});
+        throw error;
+      }
+    }
+    logEvent("panel.addon.attached", { addon:id, user:req.username });
+    res.json({ ok:true, addon, addons:await currentAddonStatuses() });
+  } catch (error) {
+    res.status(error.status || 400).json({ error:error.message, code:error.code || "ADDON_ATTACH_FAILED", license:error.license || null });
+  }
 });
 app.post("/api/addons/:id/detach", requireAdmin, async (req,res) => {
   try {
@@ -1096,7 +1100,7 @@ app.get("/api/system/status", async (req, res) => {
     const addonStatuses = await currentAddonStatuses();
     status.addons = addonStatuses.map(({folderPath,requiredFiles,...addon}) => addon);
     const sorterAddon = addonStatuses.find((addon) => addon.id === "sorter");
-    const sorterLicense = await getComponentStatus(COMPONENTS.SORTER).catch(() => ({ licensed:false }));
+    const sorterLicense = await getComponentStatus(COMPONENTS.SORTER, { refresh:true }).catch(() => ({ licensed:false }));
     const liveSorterPort = sorterAddon?.attached && sorterLicense.licensed ? await resolveSorterPort().catch(() => 0) : 0;
     const sorterReachable = sorterLicense.licensed && !!liveSorterPort && await sorterOnlineWithRetry(liveSorterPort).catch(() => false);
     status.sorter = {
@@ -1110,7 +1114,7 @@ app.get("/api/system/status", async (req, res) => {
       status:sorterLicense.licensed ? (sorterReachable ? "Running" : "Stopped") : "Blocked by licence",
       url:liveSorterPort ? "http://127.0.0.1:" + liveSorterPort : SORTER_URL,
     };
-    const mcpLicense = await getComponentStatus(COMPONENTS.MCP).catch(() => ({ licensed:false }));
+    const mcpLicense = await getComponentStatus(COMPONENTS.MCP, { refresh:true }).catch(() => ({ licensed:false }));
     const hiveOk = mcpLicense.licensed ? await hive.ping().catch(() => false) : false;
     status.hive = {
       ...(status.hive || {}),
@@ -1141,19 +1145,30 @@ app.post("/api/system/control", requireAdmin, express.json(), async (req, res) =
   const action = req.body?.action || "restart";
   if (!CONTROL_TARGETS.has(target)) return res.status(400).json({ error: "invalid target" });
   if (!CONTROL_ACTIONS.has(action)) return res.status(400).json({ error: "invalid action" });
+  if (target === "tunnel" && action !== "restart") {
+    return res.status(403).json({ error: "Cloudflare Tunnel must stay on. Restart is the only allowed action." });
+  }
   if (target === "sorter") {
-    const sorterLicense = await getComponentStatus(COMPONENTS.SORTER).catch(() => ({ licensed:false }));
-    if (!sorterLicense.licensed) {
-      return res.status(403).json({ error:"Sorter is blocked by licence.", code:"LICENSE_REQUIRED", license:sorterLicense });
-    }
-    if (action !== "stop" && !(await addonEnabled("sorter"))) {
-      return res.status(409).json({ error:"Attach the Sorter addon in Config before starting it." });
+    if (action !== "stop") {
+      if (!(await addonEnabled("sorter"))) {
+        return res.status(409).json({ error:"Attach the Sorter addon in Config before starting it." });
+      }
+      try {
+        await activateComponents(null, [COMPONENTS.SORTER]);
+      } catch (error) {
+        stopWindowsServiceIfRunning(SORTER_SERVICE_NAME, "sorter_license_blocked_start_attempt");
+        return res.status(error.status || 403).json({ error:"Sorter is blocked by licence. Stop is allowed; start/restart is blocked.", code:error.code || "LICENSE_REQUIRED", license:error.license || null });
+      }
     }
   }
   if (target === "hive") {
-    const mcpLicense = await getComponentStatus(COMPONENTS.MCP).catch(() => ({ licensed:false }));
-    if (!mcpLicense.licensed) {
-      return res.status(403).json({ error:"MCP is blocked by licence.", code:"LICENSE_REQUIRED", license:mcpLicense });
+    if (action !== "stop") {
+      try {
+        await activateComponents(null, [COMPONENTS.MCP]);
+      } catch (error) {
+        stopWindowsServiceIfRunning(HIVE_SERVICE_NAME, "mcp_license_blocked_start_attempt");
+        return res.status(error.status || 403).json({ error:"MCP is blocked by licence. Stop is allowed; start/restart is blocked.", code:error.code || "LICENSE_REQUIRED", license:error.license || null });
+      }
     }
   }
   const scriptPath = path.join(__dirname, "scripts", "system-control.ps1");
