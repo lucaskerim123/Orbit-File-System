@@ -1178,6 +1178,8 @@ async function renderSharePage(req, res) {
 
 app.get("/s/:token", renderSharePage);
 app.get("/share/:token", renderSharePage);
+app.get("/s/:token/download", downloadSharedFile);
+app.get("/share/:token/download", downloadSharedFile);
 
 async function downloadSharedFile(req, res) {
   try {
