@@ -1198,23 +1198,76 @@ async function copyText(text) {
   return ok;
 }
 
-async function shareFile(filepath) {
+const shareModal = { filepath: "", url: "" };
+
+function closeShareModal() {
+  document.getElementById("share-modal-overlay")?.classList.add("hidden");
+  shareModal.filepath = "";
+  shareModal.url = "";
+}
+
+function resetShareModal(filepath) {
+  shareModal.filepath = filepath;
+  shareModal.url = "";
+  document.getElementById("share-modal-file").textContent = filepath;
+  document.getElementById("share-days-input").value = "7";
+  document.getElementById("share-link-input").value = "";
+  document.getElementById("share-link-expiry").textContent = "";
+  document.getElementById("share-modal-error").textContent = "";
+  document.getElementById("share-link-wrap").classList.add("hidden");
+  document.getElementById("share-modal-copy").classList.add("hidden");
+  document.getElementById("share-modal-open").classList.add("hidden");
+  document.getElementById("share-modal-create").classList.remove("hidden");
+  document.getElementById("share-modal-overlay").classList.remove("hidden");
+}
+
+async function createShareFromModal() {
+  const error = document.getElementById("share-modal-error");
+  const button = document.getElementById("share-modal-create");
   try {
-    const daysRaw = prompt("Share link expires after how many days?", "7");
-    if (daysRaw === null) return;
-    const days = Math.max(1, Math.min(30, Number(daysRaw) || 7));
+    error.textContent = "";
+    const days = Math.max(1, Math.min(30, Number(document.getElementById("share-days-input").value) || 7));
+    button.disabled = true;
     const resp = await api("/api/share", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: filepath, days }),
+      body: JSON.stringify({ path: shareModal.filepath, days }),
     });
-    const copied = await copyText(resp.url).catch(() => false);
-    alert(copied ? `Share link copied. Expires: ${new Date(resp.expiresAt).toLocaleString()}` : `Share link:
-${resp.url}`);
+    shareModal.url = resp.url;
+    const input = document.getElementById("share-link-input");
+    input.value = resp.url;
+    document.getElementById("share-link-expiry").textContent = `Expires: ${new Date(resp.expiresAt).toLocaleString()}`;
+    document.getElementById("share-link-wrap").classList.remove("hidden");
+    document.getElementById("share-modal-copy").classList.remove("hidden");
+    document.getElementById("share-modal-open").classList.remove("hidden");
+    document.getElementById("share-modal-create").classList.add("hidden");
+    setTimeout(() => { input.focus(); input.select(); }, 30);
   } catch (err) {
-    alert(err.message);
+    error.textContent = err.message;
+  } finally {
+    button.disabled = false;
   }
 }
+
+async function copyShareLinkFromModal() {
+  const input = document.getElementById("share-link-input");
+  const ok = await copyText(input.value).catch(() => false);
+  document.getElementById("share-modal-error").textContent = ok ? "Copied." : "Copy failed. Select the link and copy it manually.";
+  input.focus();
+  input.select();
+}
+
+function shareFile(filepath) {
+  resetShareModal(filepath);
+}
+
+document.getElementById("share-modal-create")?.addEventListener("click", createShareFromModal);
+document.getElementById("share-modal-copy")?.addEventListener("click", copyShareLinkFromModal);
+document.getElementById("share-modal-open")?.addEventListener("click", () => shareModal.url && window.open(shareModal.url, "_blank", "noopener"));
+document.getElementById("share-modal-close")?.addEventListener("click", closeShareModal);
+document.getElementById("share-modal-overlay")?.addEventListener("click", (event) => {
+  if (event.target.id === "share-modal-overlay") closeShareModal();
+});
 
 async function downloadFile(filepath) {
   try {

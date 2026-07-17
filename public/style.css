@@ -1422,3 +1422,19 @@ table.data-table tr:hover td { background: var(--bg); }
 .rendered-view{font-size:1rem;line-height:1.65;max-width:860px;margin:0 auto;padding-bottom:8rem}
 .rendered-view h1,.rendered-view h2,.rendered-view h3{scroll-margin-top:5rem;line-height:1.2}
 #move-picker-name-row.hidden{display:none!important}
+
+.share-modal-box { max-width: 560px; }
+.share-modal-file { overflow-wrap: anywhere; margin-top: -0.25rem; }
+.share-link-wrap textarea {
+  width: 100%;
+  min-height: 5.4rem;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.75rem;
+  font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.share-modal-actions { gap: 0.45rem; }
+.share-modal-actions button { min-width: 76px; }

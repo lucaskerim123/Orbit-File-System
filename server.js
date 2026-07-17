@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+﻿import dotenv from "dotenv";
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -8,7 +8,7 @@ import { execFile, spawn } from "child_process";
 import { Readable } from "stream";
 import crypto from "crypto";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import { PDFParse } from "pdf-parse";
 import { makeOrbitFSClient } from "./orbitfs-client.js";
 import { resolveLocalOrbitFSRoot, makeLocalOps } from "./local-orbitfs-ops.js";
 import { verifyLogin, validateSession, invalidateSession, listUsers, upsertUser, removeUser, getUserProfile, updateUserProfile } from "./auth.js";
@@ -754,7 +754,7 @@ function markdownToHtml(text = "", title = "OrbitFS Export") {
     if (/^###\s+/.test(line)) return `<h3>${escapeHtml(line.replace(/^###\s+/, ""))}</h3>`;
     if (/^##\s+/.test(line)) return `<h2>${escapeHtml(line.replace(/^##\s+/, ""))}</h2>`;
     if (/^#\s+/.test(line)) return `<h1>${escapeHtml(line.replace(/^#\s+/, ""))}</h1>`;
-    if (/^\s*[-*+]\s+/.test(line)) return `<p class="bullet">• ${escapeHtml(line.replace(/^\s*[-*+]\s+/, ""))}</p>`;
+    if (/^\s*[-*+]\s+/.test(line)) return `<p class="bullet">â€¢ ${escapeHtml(line.replace(/^\s*[-*+]\s+/, ""))}</p>`;
     if (!line.trim()) return `<div class="gap"></div>`;
     return `<p>${escapeHtml(line)}</p>`;
   }).join("\n");
@@ -886,7 +886,8 @@ async function extractReadableSource(filepath) {
     return { text: result.value || "", sourceType: "docx", warnings: messages };
   }
   if (ext === ".pdf") {
-    const result = await pdfParse(await fs.readFile(absolute));
+    const parser = new PDFParse({ data: await fs.readFile(absolute) });
+    const result = await parser.getText();
     const text = result.text || "";
     const warnings = text.trim().length < 20 ? ["PDF returned little or no text. It may be scanned/image-based."] : [];
     return { text, sourceType: "pdf", pages: result.numpages || null, warnings };
@@ -1777,3 +1778,4 @@ app.listen(PORT, async () => {
     cloudflaredDir: CLOUDFLARED_DIR,
   });
 });
+
